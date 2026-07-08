@@ -3328,6 +3328,7 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
@@ -5168,6 +5169,7 @@ name = "vek-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "rutracker",
  "serde",
  "tempfile",
  "tokio",

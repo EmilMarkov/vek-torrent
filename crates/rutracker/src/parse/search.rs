@@ -50,7 +50,7 @@ pub fn parse_search_page(html: &str, offset: u32) -> Result<SearchPage> {
     let total_found = RE_TOTAL
         .captures(html)
         .and_then(|c| c[1].parse().ok())
-        .unwrap_or(u64::from(offset) + items.len() as u64);
+        .unwrap_or_else(|| u64::from(offset) + items.len() as u64);
 
     let search_id = RE_SEARCH_ID.captures(html).map(|c| c[1].to_owned());
 

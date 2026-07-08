@@ -10,24 +10,13 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
 
 /// Корневая конфигурация приложения.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
     pub rutracker: RutrackerConfig,
     pub qbittorrent: QbitConfig,
     pub api: ApiConfig,
     pub downloads: DownloadsConfig,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            rutracker: RutrackerConfig::default(),
-            qbittorrent: QbitConfig::default(),
-            api: ApiConfig::default(),
-            downloads: DownloadsConfig::default(),
-        }
-    }
 }
 
 /// Настройки доступа к rutracker.

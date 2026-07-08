@@ -93,7 +93,7 @@ pub struct SearchPage {
 impl SearchPage {
     /// Есть ли ещё страницы результатов.
     pub fn has_more(&self) -> bool {
-        u64::from(self.offset) + self.items.len() as u64 < self.total_found
+        u64::from(self.offset) + (self.items.len() as u64) < self.total_found
     }
 }
 
