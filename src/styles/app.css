@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/*
+ * Дизайн-токены VEK Torrent — тёмная тема.
+ * Все цвета приложения определяются здесь и используются как утилиты Tailwind:
+ * bg-bg, bg-surface, text-text, border-border, text-accent и т.д.
+ */
+@theme {
+  --color-bg: #0b0d11;
+  --color-surface: #12151b;
+  --color-surface-2: #191d25;
+  --color-surface-3: #212630;
+  --color-border: #262c37;
+  --color-border-strong: #333a48;
+
+  --color-text: #e8eaf0;
+  --color-muted: #8b93a5;
+  --color-faint: #5b6273;
+
+  --color-accent: #7c5cff;
+  --color-accent-hover: #8f73ff;
+  --color-accent-soft: #7c5cff28;
+
+  --color-success: #3ecf8e;
+  --color-warn: #f5b544;
+  --color-danger: #f4587a;
+  --color-info: #4da3ff;
+
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+/* Текст внутри контента раздач должен выделяться. */
+.selectable,
+.selectable * {
+  user-select: text;
+}
+
+/* Тонкие тёмные скроллбары. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}

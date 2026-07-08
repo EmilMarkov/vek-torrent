@@ -1,0 +1,95 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/rutracker",
+  "crates/qbit",
+  "crates/vek-core",
+  "crates/vek-api",
+  "src-tauri",
+]
+# src-tauri требует системных библиотек webview; в среде разработки без них
+# собираются только чистые крейты. CI собирает workspace целиком.
+default-members = [
+  "crates/rutracker",
+  "crates/qbit",
+  "crates/vek-core",
+  "crates/vek-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Alex <emil.markov2003@gmail.com>"]
+
+[workspace.dependencies]
+# Внутренние крейты
+rutracker = { path = "crates/rutracker" }
+qbit = { path = "crates/qbit" }
+vek-core = { path = "crates/vek-core" }
+vek-api = { path = "crates/vek-api" }
+
+# Общие зависимости
+anyhow = "1"
+axum = "0.8"
+base64 = "0.22"
+cookie_store = "0.22"
+encoding_rs = "0.8"
+futures-util = "0.3"
+percent-encoding = "2.3"
+regex = "1.12"
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls-tls",
+  "gzip",
+  "json",
+  "multipart",
+  "socks",
+] }
+reqwest_cookie_store = "0.10"
+scraper = "0.27"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1_smol = "1"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1.52", features = [
+  "rt-multi-thread",
+  "macros",
+  "process",
+  "fs",
+  "time",
+  "sync",
+  "io-util",
+  "net",
+] }
+tower = "0.5"
+tower-http = { version = "0.7", features = ["cors"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5"
+utoipa = "5.5"
+utoipa-axum = "0.2"
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+uuid = { version = "1", features = ["v4"] }
+which = "8"
+wiremock = "0.6"
+
+# Tauri
+tauri = { version = "2.11", features = [] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

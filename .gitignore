@@ -1,0 +1,16 @@
+# Rust
+/target
+
+# Node
+node_modules
+dist
+
+# Tauri
+/src-tauri/gen/schemas
+# Мобильные иконки не используются (десктопное приложение)
+/src-tauri/icons/android
+/src-tauri/icons/ios
+
+# Misc
+*.log
+.DS_Store
