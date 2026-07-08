@@ -438,10 +438,7 @@ fn apply_style(style: &str, marks: &mut Marks) {
         let value = value.trim().to_ascii_lowercase();
         match prop.as_str() {
             "color" => {
-                let safe: String = value
-                    .chars()
-                    .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '#' | '(' | ')' | ',' | '.' | '%' | ' ' | '-'))
-                    .collect();
+                let safe: String = value.chars().filter(|&c| is_safe_color_char(c)).collect();
                 if !safe.is_empty() {
                     marks.color = Some(safe.trim().to_owned());
                 }
@@ -468,6 +465,11 @@ fn apply_style(style: &str, marks: &mut Marks) {
             _ => {}
         }
     }
+}
+
+/// Допустимые символы CSS-цвета (защита от инъекций в атрибут стиля).
+fn is_safe_color_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '#' | '(' | ')' | ',' | '.' | '%' | ' ' | '-')
 }
 
 fn resolve_href(href: &str, base: &Url) -> String {
