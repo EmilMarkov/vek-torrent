@@ -141,7 +141,7 @@ export interface TransferSummary {
 
 export interface Category {
   name: string;
-  save_path: string;
+  savePath: string;
 }
 
 export interface AddOptions {

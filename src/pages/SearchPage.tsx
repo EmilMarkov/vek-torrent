@@ -28,15 +28,16 @@ export function SearchPage() {
     overscan: 8,
   });
 
-  // Догрузка при приближении к концу списка.
+  // Догрузка при приближении к концу списка. Работает и при активных
+  // клиентских фильтрах: если фильтры сузили выдачу, подтягиваем следующие
+  // страницы (до серверного предела), чтобы найти больше совпадений.
   const virtualItems = virtualizer.getVirtualItems();
   useEffect(() => {
+    if (!search.hasMore) return;
     const last = virtualItems.at(-1);
-    if (!last) return;
-    if (last.index >= visible.length - 5 && search.hasMore && filters.refine.trim() === "") {
-      search.loadMore();
-    }
-  }, [virtualItems, visible.length, search, filters.refine]);
+    const nearEnd = last ? last.index >= visible.length - 5 : visible.length === 0;
+    if (nearEnd) search.loadMore();
+  }, [virtualItems, visible.length, search]);
 
   return (
     <div className="flex h-full flex-col">

@@ -35,6 +35,9 @@ export function useSearch() {
   // Идентификатор актуального запроса: ответы с меньшим id отбрасываются.
   const runId = useRef(0);
   const searchId = useRef<string | null>(null);
+  // Актуальное число загруженных элементов — источник offset для догрузки,
+  // не зависящий от возможно устаревшего замыкания.
+  const loadedCount = useRef(0);
 
   const performSearch = useCallback(
     async (reset: boolean) => {
@@ -51,7 +54,7 @@ export function useSearch() {
       }));
 
       try {
-        const offset = reset ? 0 : state.items.length;
+        const offset = reset ? 0 : loadedCount.current;
         const page = await api.search({
           query: currentQuery,
           forums: [],
@@ -67,6 +70,7 @@ export function useSearch() {
         searchId.current = page.search_id;
         setState((prev) => {
           const items = reset ? page.items : [...prev.items, ...page.items];
+          loadedCount.current = items.length;
           return {
             items,
             totalFound: page.total_found,
@@ -87,7 +91,7 @@ export function useSearch() {
         }));
       }
     },
-    [query, author, state.items.length],
+    [query, author],
   );
 
   // Дебаунс: новый поиск через паузу после последнего изменения строки.
@@ -95,6 +99,7 @@ export function useSearch() {
     if (!query.trim() && !author.trim()) {
       runId.current++;
       searchId.current = null;
+      loadedCount.current = 0;
       setState({
         items: [],
         totalFound: 0,
