@@ -96,10 +96,12 @@ pub fn write_profile_config(profile_dir: &Path, port: u16, save_path: &str) -> R
     let config_dir = profile_dir.join("qBittorrent").join("config");
     std::fs::create_dir_all(&config_dir)?;
 
-    let save_line = if save_path.trim().is_empty() {
+    // Секцию [BitTorrent] пишем только при заданном каталоге сохранения,
+    // чтобы не оставлять висячий заголовок.
+    let bittorrent_section = if save_path.trim().is_empty() {
         String::new()
     } else {
-        format!("Session\\DefaultSavePath={save_path}\n")
+        format!("\n[BitTorrent]\nSession\\DefaultSavePath={save_path}\n")
     };
 
     // INI-формат qBittorrent. LocalHostAuth=false отключает пароль для 127.0.0.1;
@@ -116,9 +118,7 @@ pub fn write_profile_config(profile_dir: &Path, port: u16, save_path: &str) -> R
          WebUI\\CSRFProtection=false\n\
          WebUI\\HostHeaderValidation=false\n\
          WebUI\\ClickjackingProtection=false\n\
-         \n\
-         [BitTorrent]\n\
-         {save_line}"
+         {bittorrent_section}"
     );
 
     let config_file = config_dir.join("qBittorrent.conf");

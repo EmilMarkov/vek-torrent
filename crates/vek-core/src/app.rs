@@ -346,12 +346,20 @@ impl AppCore {
 
     /// Ставит загрузки на паузу.
     pub async fn pause(&self, hashes: Vec<String>) -> Result<()> {
-        self.ensure_qbit().await?.stop(&hashes).await.map_err(Error::from)
+        self.ensure_qbit()
+            .await?
+            .stop(&hashes)
+            .await
+            .map_err(Error::from)
     }
 
     /// Возобновляет загрузки.
     pub async fn resume(&self, hashes: Vec<String>) -> Result<()> {
-        self.ensure_qbit().await?.start(&hashes).await.map_err(Error::from)
+        self.ensure_qbit()
+            .await?
+            .start(&hashes)
+            .await
+            .map_err(Error::from)
     }
 
     /// Удаляет загрузки (опционально с файлами).
