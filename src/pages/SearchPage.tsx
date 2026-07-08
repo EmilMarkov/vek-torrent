@@ -10,11 +10,12 @@ import { BackButton } from "@/components/PageHeader";
 import { ResultRow } from "@/components/ResultRow";
 import { Button, EmptyState, Input, Spinner } from "@/components/ui";
 import { useSearch } from "@/hooks/useSearch";
-import { applyFilters, DEFAULT_FILTERS, hasActiveFilters, type ClientFilters } from "@/lib/filters";
+import { applyFilters, hasActiveFilters } from "@/lib/filters";
 
 export function SearchPage() {
   const search = useSearch();
-  const [filters, setFilters] = useState<ClientFilters>(DEFAULT_FILTERS);
+  const filters = search.filters;
+  const setFilters = search.setFilters;
   const [showFilters, setShowFilters] = useState(true);
 
   const visible = useMemo(() => applyFilters(search.items, filters), [search.items, filters]);
@@ -28,6 +29,21 @@ export function SearchPage() {
     estimateSize: () => 68,
     overscan: 8,
   });
+
+  // Восстанавливаем позицию прокрутки при возврате на страницу и сохраняем её
+  // при уходе (чтобы «Назад» возвращал ровно туда, где были).
+  const setScrollTop = search.setScrollTop;
+  const savedScrollTop = search.scrollTop;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && savedScrollTop > 0) el.scrollTop = savedScrollTop;
+    // Тот же DOM-узел живёт весь срок страницы: читаем его scrollTop при уходе.
+    return () => {
+      if (el) setScrollTop(el.scrollTop);
+    };
+    // Только при монтировании/размонтировании страницы.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Догрузка при приближении к концу списка. Работает и при активных
   // клиентских фильтрах: подтягиваем следующие страницы до серверного предела.

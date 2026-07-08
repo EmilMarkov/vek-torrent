@@ -32,10 +32,31 @@ interface Props {
 const selectClass =
   "w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text focus:border-accent/70 focus:outline-none";
 
+/** Компактное представление размера в байтах для поля ввода фильтра. */
+function bytesToInput(bytes: number | null): string {
+  if (bytes === null) return "";
+  const units: [number, string][] = [
+    [1024 ** 4, "тб"],
+    [1024 ** 3, "гб"],
+    [1024 ** 2, "мб"],
+    [1024, "кб"],
+  ];
+  for (const [factor, unit] of units) {
+    if (bytes >= factor) {
+      const value = bytes / factor;
+      return `${Number.isInteger(value) ? value : value.toFixed(1)}${unit}`;
+    }
+  }
+  return String(bytes);
+}
+
 export function FiltersSidebar({ filters, onChange }: Props) {
-  const [sizeMin, setSizeMin] = useState("");
-  const [sizeMax, setSizeMax] = useState("");
-  const [seeders, setSeeders] = useState("");
+  // Инициализируем поля из сохранённых фильтров (состояние переживает переходы).
+  const [sizeMin, setSizeMin] = useState(() => bytesToInput(filters.minSizeBytes));
+  const [sizeMax, setSizeMax] = useState(() => bytesToInput(filters.maxSizeBytes));
+  const [seeders, setSeeders] = useState(() =>
+    filters.minSeeders === null ? "" : String(filters.minSeeders),
+  );
 
   const update = (patch: Partial<ClientFilters>) => onChange({ ...filters, ...patch });
 
