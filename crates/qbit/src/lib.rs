@@ -1,14 +1,19 @@
-//! Типизированный клиент qBittorrent Web API v2 (qBittorrent 5.x, fallback 4.x).
+//! Типизированный клиент qBittorrent Web API v2.
 //!
-//! Наполняется на этапе 3.
+//! Ориентирован на qBittorrent 5.x, но совместим с 4.x: методы «остановить»
+//! и «запустить» автоматически выбирают между `stop/start` (v5) и
+//! `pause/resume` (v4) с откатом по коду ответа 404/405.
+//!
+//! Основной способ получения состояния загрузок — периодический опрос
+//! [`Client::torrents`] (надёжнее, чем диффы `sync/maindata`) в паре с
+//! [`Client::transfer_info`] для глобальной статистики.
 
-/// Версия крейта (проверка сборки скелета).
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub mod client;
+pub mod error;
+pub mod models;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn version_is_set() {
-        assert!(!super::VERSION.is_empty());
-    }
-}
+pub use client::{Client, ClientConfig};
+pub use error::Error;
+
+/// Результат операций клиента qBittorrent.
+pub type Result<T> = std::result::Result<T, Error>;
