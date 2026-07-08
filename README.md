@@ -8,13 +8,15 @@
 торрент-движок — всё в одном настольном приложении. Ничего доустанавливать
 не нужно.
 
-[![CI](https://github.com/OWNER/vek-torrent/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/vek-torrent/actions/workflows/ci.yml)
+[![CI](https://github.com/EmilMarkov/vek-torrent/actions/workflows/ci.yml/badge.svg)](https://github.com/EmilMarkov/vek-torrent/actions/workflows/ci.yml)
 ![Платформы](https://img.shields.io/badge/платформы-Windows%20%7C%20macOS%20%7C%20Linux-7c5cff)
 ![Лицензия](https://img.shields.io/badge/лицензия-MIT-3ecf8e)
 
 </div>
 
 ---
+
+![Скриншот](docs/image.png)
 
 ## Возможности
 
@@ -42,11 +44,6 @@
   программах и скриптах: поиск, страницы раздач, избранное и управление
   загрузками через HTTP с документацией OpenAPI (Swagger UI).
 - **Тёмная тема.** Продуманный, спокойный интерфейс, комфортный для глаз.
-
-## Скриншоты
-
-> Поиск с панелью фильтров, страница раздачи и список загрузок.
-> _(Добавьте изображения в каталог `docs/` и вставьте их сюда.)_
 
 ## Установка
 
