@@ -5,6 +5,7 @@ import { ArrowDownToLine, ArrowLeft, ArrowUp, Magnet, TriangleAlert, Users } fro
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { ContentBlocks } from "@/components/ContentBlockView";
+import { openDownloadModal } from "@/components/DownloadModal";
 import { toast } from "@/components/Toaster";
 import { Badge, Button, EmptyState, Spinner } from "@/components/ui";
 import { useAddDownload } from "@/hooks/useAddDownload";
@@ -59,15 +60,20 @@ export function TopicView({ topicId }: { topicId: number }) {
             </h1>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Button variant="primary" loading={adding} onClick={() => add(data.id)}>
+              <Button
+                variant="primary"
+                onClick={() => openDownloadModal(data.id, data.title)}
+                title="Выбрать файлы и скачать"
+              >
                 <ArrowDownToLine className="h-4 w-4" />
                 Скачать
               </Button>
               {data.magnet && (
                 <Button
                   variant="secondary"
+                  loading={adding}
                   onClick={() => add(data.id, { preferMagnet: true })}
-                  title="Добавить через magnet-ссылку"
+                  title="Быстро добавить все файлы через magnet"
                 >
                   <Magnet className="h-4 w-4" />
                   Magnet

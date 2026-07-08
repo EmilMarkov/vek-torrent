@@ -3,15 +3,14 @@
 import { clsx } from "clsx";
 import { ArrowDownToLine, ArrowUp, CheckCircle2, Users } from "lucide-react";
 
+import { openDownloadModal } from "@/components/DownloadModal";
 import { Button } from "@/components/ui";
-import { useAddDownload } from "@/hooks/useAddDownload";
 import { formatDate, formatNumber, formatSize } from "@/lib/format";
 import type { SearchResult } from "@/lib/types";
 import { useAppStore } from "@/store";
 
 export function ResultRow({ result }: { result: SearchResult }) {
   const openTopic = useAppStore((s) => s.openTopic);
-  const { add, adding } = useAddDownload();
 
   return (
     <div className="group flex items-center gap-3 border-b border-border/60 py-2.5">
@@ -53,8 +52,7 @@ export function ResultRow({ result }: { result: SearchResult }) {
 
       <Button
         variant="ghost"
-        loading={adding}
-        onClick={() => add(result.topic_id)}
+        onClick={() => openDownloadModal(result.topic_id, result.title)}
         className="shrink-0 opacity-0 group-hover:opacity-100"
         title="Скачать"
       >
