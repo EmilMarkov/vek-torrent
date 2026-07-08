@@ -4,14 +4,19 @@ mod commands;
 mod error;
 mod state;
 
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use serde::Serialize;
-use tauri::{Emitter, Manager, RunEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, RunEvent, WindowEvent,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_notification::NotificationExt;
 use vek_core::{
     AppCore,
-    models::{DownloadItem, TransferSummary},
+    models::{DownloadItem, DownloadState, TransferSummary},
 };
 
 use state::AppState;
@@ -21,6 +26,52 @@ fn parse_topic_url(url: &str) -> Option<u64> {
     let rest = url.strip_prefix("vektorrent://topic/")?;
     let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
     digits.parse().ok()
+}
+
+/// Показывает и фокусирует главное окно.
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// Отправляет нативное уведомление ОС (ошибки игнорируются).
+fn notify(app: &AppHandle, title: &str, body: &str) {
+    let _ = app.notification().builder().title(title).body(body).show();
+}
+
+/// Создаёт значок в системном трее с меню и обработкой кликов.
+fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "Показать окно", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Выход", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+
+    let mut builder = TrayIconBuilder::new()
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon);
+    }
+    builder.build(app)?;
+    Ok(())
 }
 
 /// Полезная нагрузка события обновления загрузок.
@@ -91,8 +142,20 @@ pub fn run() {
                 }
             });
 
+            // Значок в системном трее с меню.
+            if let Err(e) = setup_tray(app.handle()) {
+                tracing::warn!("не удалось создать значок в трее: {e}");
+            }
+
             spawn_background_tasks(app.handle().clone(), core);
             Ok(())
+        })
+        // Закрытие окна сворачивает приложение в трей (выход — через меню трея).
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
@@ -163,7 +226,7 @@ fn spawn_background_tasks(app: tauri::AppHandle, core: vek_core::SharedCore) {
         });
     }
 
-    // Периодическая проверка обновлений избранных раздач.
+    // Периодическая проверка обновлений избранных раздач + уведомления.
     {
         let app = app.clone();
         let core = core.clone();
@@ -172,22 +235,51 @@ fn spawn_background_tasks(app: tauri::AppHandle, core: vek_core::SharedCore) {
             tokio::time::sleep(Duration::from_secs(60)).await;
             let mut interval = tokio::time::interval(FAVORITES_CHECK_INTERVAL);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            // Первый прогон только «прогревает» набор, чтобы не спамить об уже
+            // накопленных обновлениях при запуске.
+            let mut notified: HashSet<u64> = HashSet::new();
+            let mut primed = false;
             loop {
                 interval.tick().await;
                 if let Ok(favorites) = core.check_favorites().await {
+                    for fav in &favorites {
+                        if fav.has_update {
+                            if notified.insert(fav.topic_id) && primed {
+                                notify(&app, "Обновление раздачи", &fav.title);
+                            }
+                        } else {
+                            notified.remove(&fav.topic_id);
+                        }
+                    }
+                    primed = true;
                     let _ = app.emit("favorites:updated", favorites);
                 }
             }
         });
     }
 
-    // Фоновый опрос загрузок с рассылкой событий во фронтенд.
+    // Фоновый опрос загрузок: события во фронтенд + уведомления о статусах.
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(POLL_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut done: HashSet<String> = HashSet::new();
+        let mut errored: HashSet<String> = HashSet::new();
+        let mut primed = false;
         loop {
             interval.tick().await;
             if let Some((items, transfer)) = core.snapshot().await {
+                for item in &items {
+                    if item.finished && done.insert(item.hash.clone()) && primed {
+                        notify(&app, "Загрузка завершена", &item.name);
+                    }
+                    if matches!(item.state, DownloadState::Error)
+                        && errored.insert(item.hash.clone())
+                        && primed
+                    {
+                        notify(&app, "Ошибка загрузки", &item.name);
+                    }
+                }
+                primed = true;
                 let _ = app.emit("downloads:update", DownloadsUpdate { items, transfer });
             }
         }
