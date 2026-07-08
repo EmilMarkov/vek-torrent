@@ -19,6 +19,7 @@ default-members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 license = "MIT"
 authors = ["Alex <emil.markov2003@gmail.com>"]
 
@@ -35,11 +36,12 @@ axum = "0.8"
 base64 = "0.22"
 cookie_store = "0.22"
 encoding_rs = "0.8"
-futures-util = "0.3"
 percent-encoding = "2.3"
 regex = "1.12"
 reqwest = { version = "0.13", default-features = false, features = [
-  "rustls-tls",
+  "rustls",
+  "http2",
+  "cookies",
   "gzip",
   "json",
   "multipart",
@@ -70,7 +72,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 utoipa = "5.5"
 utoipa-axum = "0.2"
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", default-features = false, features = [
+  "axum",
+  "vendored",
+] }
 uuid = { version = "1", features = ["v4"] }
 which = "8"
 wiremock = "0.6"

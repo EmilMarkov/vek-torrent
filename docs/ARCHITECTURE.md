@@ -63,6 +63,8 @@ Cargo workspace, зависимости направлены строго вни
 ## CI/CD
 
 - `ci.yml` — линт + тесты на push/PR.
+- `Cargo.lock` коммитится после первого прогона CI (в среде разработки cargo недоступен);
+  после этого сборки в CI переводятся на `--locked`.
 - `release.yml` — на тег `v*`: создание GitHub-релиза с автогенерируемыми release notes,
   сборка через tauri-action: Windows (NSIS/MSI), Linux (AppImage/deb/rpm), macOS
   (dmg, aarch64 + x86_64).
