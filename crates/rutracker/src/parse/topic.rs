@@ -29,9 +29,8 @@ static SEED: LazyLock<Selector> =
 static LEECH: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("span.leech b, span.leech").expect("selector"));
 
-static RE_SIZE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"Размер:\s*([\d.,]+\s*(?:[KMGT]?B|[КМГТ]?Б))").expect("regex")
-});
+static RE_SIZE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"Размер:\s*([\d.,]+\s*(?:[KMGT]?B|[КМГТ]?Б))").expect("regex"));
 static RE_COMPLETED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"Скачан:\s*([\d\s.,\u{a0}]+)\s*раз").expect("regex"));
 static RE_REGISTERED: LazyLock<Regex> =
@@ -86,11 +85,23 @@ pub fn parse_topic_page(html: &str, id: u64, base: &Url) -> Result<TopicPage> {
     let page_text = collapse_whitespace(&doc.root_element().text().collect::<String>());
 
     let stats = TorrentStats {
-        size_bytes: RE_SIZE.captures(&page_text).and_then(|c| parse_size_text(&c[1])),
-        seeders: doc.select(&SEED).next().and_then(|el| first_int(&element_text(el))),
-        leechers: doc.select(&LEECH).next().and_then(|el| first_int(&element_text(el))),
-        completed: RE_COMPLETED.captures(&page_text).and_then(|c| first_int(&c[1])),
-        registered: RE_REGISTERED.captures(&page_text).map(|c| c[1].trim().to_owned()),
+        size_bytes: RE_SIZE
+            .captures(&page_text)
+            .and_then(|c| parse_size_text(&c[1])),
+        seeders: doc
+            .select(&SEED)
+            .next()
+            .and_then(|el| first_int(&element_text(el))),
+        leechers: doc
+            .select(&LEECH)
+            .next()
+            .and_then(|el| first_int(&element_text(el))),
+        completed: RE_COMPLETED
+            .captures(&page_text)
+            .and_then(|c| first_int(&c[1])),
+        registered: RE_REGISTERED
+            .captures(&page_text)
+            .map(|c| c[1].trim().to_owned()),
     };
 
     Ok(TopicPage {
@@ -135,10 +146,14 @@ mod tests {
 
         // Тело: параграф, спойлер со скриншотами, код.
         assert!(!topic.body.is_empty());
-        let has_spoiler = topic.body.iter().any(
-            |b| matches!(b, ContentBlock::Spoiler { title, .. } if title == "Скриншоты"),
-        );
-        let has_code = topic.body.iter().any(|b| matches!(b, ContentBlock::Code { .. }));
+        let has_spoiler = topic
+            .body
+            .iter()
+            .any(|b| matches!(b, ContentBlock::Spoiler { title, .. } if title == "Скриншоты"));
+        let has_code = topic
+            .body
+            .iter()
+            .any(|b| matches!(b, ContentBlock::Code { .. }));
         assert!(has_spoiler);
         assert!(has_code);
     }

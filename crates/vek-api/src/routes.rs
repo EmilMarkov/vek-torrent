@@ -104,9 +104,7 @@ pub async fn topic(
     get, path = "/api/v1/categories", tag = "search",
     responses((status = 200, body = Vec<ForumGroup>))
 )]
-pub async fn categories(
-    State(state): State<ApiState>,
-) -> Result<Json<Vec<ForumGroup>>, ApiError> {
+pub async fn categories(State(state): State<ApiState>) -> Result<Json<Vec<ForumGroup>>, ApiError> {
     Ok(Json(state.core.categories().await?))
 }
 
@@ -115,9 +113,7 @@ pub async fn categories(
     get, path = "/api/v1/downloads", tag = "downloads",
     responses((status = 200, body = Vec<DownloadItem>), (status = 503, body = crate::ErrorBody))
 )]
-pub async fn downloads(
-    State(state): State<ApiState>,
-) -> Result<Json<Vec<DownloadItem>>, ApiError> {
+pub async fn downloads(State(state): State<ApiState>) -> Result<Json<Vec<DownloadItem>>, ApiError> {
     Ok(Json(state.core.downloads().await?))
 }
 
@@ -126,9 +122,7 @@ pub async fn downloads(
     get, path = "/api/v1/transfer", tag = "downloads",
     responses((status = 200, body = TransferSummary), (status = 503, body = crate::ErrorBody))
 )]
-pub async fn transfer(
-    State(state): State<ApiState>,
-) -> Result<Json<TransferSummary>, ApiError> {
+pub async fn transfer(State(state): State<ApiState>) -> Result<Json<TransferSummary>, ApiError> {
     Ok(Json(state.core.transfer().await?))
 }
 

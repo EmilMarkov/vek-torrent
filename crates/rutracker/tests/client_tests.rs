@@ -47,8 +47,7 @@ const CATEGORIES_PAGE: &str = r#"<html><body>
 </body></html>"#;
 
 fn html_cp1251(body: &str) -> ResponseTemplate {
-    ResponseTemplate::new(200)
-        .set_body_raw(encode_cp1251(body), "text/html; charset=windows-1251")
+    ResponseTemplate::new(200).set_body_raw(encode_cp1251(body), "text/html; charset=windows-1251")
 }
 
 fn client_for(server: &MockServer) -> Client {
@@ -67,17 +66,20 @@ async fn login_success_sets_session_cookie() {
         .and(body_string_contains("login_username=user"))
         // «Вход» обязан уйти в windows-1251: C2 F5 EE E4
         .and(body_string_contains("login=%C2%F5%EE%E4"))
-        .respond_with(
-            html_cp1251(LOGGED_IN_PAGE)
-                .insert_header("set-cookie", "bb_session=1-abcdef; Path=/; Max-Age=31536000"),
-        )
+        .respond_with(html_cp1251(LOGGED_IN_PAGE).insert_header(
+            "set-cookie",
+            "bb_session=1-abcdef; Path=/; Max-Age=31536000",
+        ))
         .expect(1)
         .mount(&server)
         .await;
 
     let client = client_for(&server);
     assert!(!client.has_session_cookie());
-    client.login("user", "pass", None).await.expect("вход должен пройти");
+    client
+        .login("user", "pass", None)
+        .await
+        .expect("вход должен пройти");
     assert!(client.has_session_cookie());
 }
 
@@ -148,7 +150,10 @@ async fn search_sends_cp1251_form_and_parses_results() {
         order: SortOrder::Desc,
         ..Default::default()
     };
-    let page = client_for(&server).search(&request).await.expect("поиск должен пройти");
+    let page = client_for(&server)
+        .search(&request)
+        .await
+        .expect("поиск должен пройти");
 
     assert_eq!(page.items.len(), 2);
     assert_eq!(page.total_found, 2);
@@ -175,7 +180,10 @@ async fn search_pagination_uses_search_id() {
         search_id: Some("Af1B2c3D".to_owned()),
         ..Default::default()
     };
-    let page = client_for(&server).search(&request).await.expect("пагинация должна работать");
+    let page = client_for(&server)
+        .search(&request)
+        .await
+        .expect("пагинация должна работать");
     assert_eq!(page.offset, 50);
 }
 
@@ -208,7 +216,10 @@ async fn topic_page_is_parsed() {
         .mount(&server)
         .await;
 
-    let topic = client_for(&server).topic(6335144).await.expect("раздача должна разобраться");
+    let topic = client_for(&server)
+        .topic(6335144)
+        .await
+        .expect("раздача должна разобраться");
     assert!(topic.title.contains("Linux Mint"));
     assert!(topic.magnet.is_some());
     assert!(topic.has_torrent_file);
@@ -224,7 +235,10 @@ async fn categories_are_parsed() {
         .mount(&server)
         .await;
 
-    let groups = client_for(&server).categories().await.expect("дерево должно разобраться");
+    let groups = client_for(&server)
+        .categories()
+        .await
+        .expect("дерево должно разобраться");
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].forums.len(), 2);
     assert_eq!(groups[0].forums[1].depth, 1);
@@ -284,10 +298,10 @@ async fn cookies_persist_between_clients() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/forum/login.php"))
-        .respond_with(
-            html_cp1251(LOGGED_IN_PAGE)
-                .insert_header("set-cookie", "bb_session=1-abcdef; Path=/; Max-Age=31536000"),
-        )
+        .respond_with(html_cp1251(LOGGED_IN_PAGE).insert_header(
+            "set-cookie",
+            "bb_session=1-abcdef; Path=/; Max-Age=31536000",
+        ))
         .mount(&server)
         .await;
 

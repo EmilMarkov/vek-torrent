@@ -314,7 +314,8 @@ impl Client {
     /// Скачивает `.torrent`-файл раздачи. Требует активной сессии.
     pub async fn download_torrent(&self, topic_id: u64) -> Result<TorrentFile> {
         let mut url = self.url("dl.php")?;
-        url.query_pairs_mut().append_pair("t", &topic_id.to_string());
+        url.query_pairs_mut()
+            .append_pair("t", &topic_id.to_string());
 
         let resp = self.http.get(url).send().await?.error_for_status()?;
         let content_type = header_str(resp.headers(), header::CONTENT_TYPE);
@@ -422,7 +423,9 @@ mod tests {
             "https://rutracker.org/forum/"
         );
         assert_eq!(
-            normalize_base("https://rutracker.org/forum/").unwrap().as_str(),
+            normalize_base("https://rutracker.org/forum/")
+                .unwrap()
+                .as_str(),
             "https://rutracker.org/forum/"
         );
     }

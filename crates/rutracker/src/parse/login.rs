@@ -121,7 +121,10 @@ mod tests {
     fn classifies_bad_credentials() {
         let html = r#"<html><body><h4 class="warnColor1">Вы ввели неверное имя пользователя или пароль</h4>
           <input name="login_username" /></body></html>"#;
-        assert!(matches!(classify_failure(html, &base()), Error::BadCredentials));
+        assert!(matches!(
+            classify_failure(html, &base()),
+            Error::BadCredentials
+        ));
     }
 
     #[test]

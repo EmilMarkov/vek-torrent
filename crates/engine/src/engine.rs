@@ -98,7 +98,9 @@ impl Engine {
             list_only: true,
             ..Default::default()
         };
-        let fut = self.session.add_torrent(Self::build_add(&source), Some(opts));
+        let fut = self
+            .session
+            .add_torrent(Self::build_add(&source), Some(opts));
         let response = tokio::time::timeout(std::time::Duration::from_secs(90), fut)
             .await
             .map_err(|_| Error::Backend("превышено время получения списка файлов".into()))?
@@ -191,7 +193,10 @@ impl Engine {
             }
             handles
         });
-        handles.iter().map(|handle| snapshot(handle, &self.download_dir)).collect()
+        handles
+            .iter()
+            .map(|handle| snapshot(handle, &self.download_dir))
+            .collect()
     }
 }
 

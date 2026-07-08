@@ -63,9 +63,9 @@ pub async fn login(
 ) -> CommandResult<LoginOutcome> {
     match state.core.login(captcha).await {
         Ok(()) => Ok(LoginOutcome::Ok),
-        Err(vek_core::Error::CaptchaRequired(challenge)) => {
-            Ok(LoginOutcome::Captcha { challenge: *challenge })
-        }
+        Err(vek_core::Error::CaptchaRequired(challenge)) => Ok(LoginOutcome::Captcha {
+            challenge: *challenge,
+        }),
         Err(e) => Err(e.into()),
     }
 }

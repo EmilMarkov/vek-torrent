@@ -247,7 +247,11 @@ impl AppCore {
     /// Список загрузок.
     pub async fn downloads(&self) -> Result<Vec<DownloadItem>> {
         let engine = self.ensure_engine().await?;
-        Ok(engine.torrents().into_iter().map(DownloadItem::from).collect())
+        Ok(engine
+            .torrents()
+            .into_iter()
+            .map(DownloadItem::from)
+            .collect())
     }
 
     /// Глобальная статистика передачи.
@@ -298,10 +302,7 @@ impl AppCore {
     }
 
     fn add_params(&self, config: &AppConfig, options: &AddOptions) -> AddParams {
-        let output_folder = options
-            .save_path
-            .clone()
-            .filter(|p| !p.trim().is_empty());
+        let output_folder = options.save_path.clone().filter(|p| !p.trim().is_empty());
         AddParams {
             output_folder,
             paused: options.stopped.unwrap_or(config.downloads.add_stopped),
@@ -319,7 +320,11 @@ impl AppCore {
         let preview = engine.preview(source).await?;
         Ok(TorrentFilesPreview {
             hash: preview.hash,
-            name: if preview.name.is_empty() { topic.title } else { preview.name },
+            name: if preview.name.is_empty() {
+                topic.title
+            } else {
+                preview.name
+            },
             total_size: preview.total_size,
             files: preview.files.into_iter().map(Into::into).collect(),
         })
@@ -332,14 +337,20 @@ impl AppCore {
         let topic = self
             .with_auth_retry(|client| async move { client.topic(topic_id).await })
             .await?;
-        let source = self.pick_source(topic_id, &topic, options.prefer_magnet).await?;
+        let source = self
+            .pick_source(topic_id, &topic, options.prefer_magnet)
+            .await?;
 
         // Если каталог не задан явно — используем каталог категории раздачи.
         let mut params = self.add_params(&config, &options);
         if params.output_folder.is_none()
             && let Some(category) = category_for_topic(&topic)
         {
-            params.output_folder = config.downloads.category_paths.get(category).map(str::to_owned);
+            params.output_folder = config
+                .downloads
+                .category_paths
+                .get(category)
+                .map(str::to_owned);
         }
 
         let hash = engine.add(source, params).await.map_err(Error::from)?;
@@ -400,7 +411,10 @@ impl AppCore {
 
     /// В избранном ли раздача.
     pub fn is_favorite(&self, topic_id: u64) -> bool {
-        self.library.read().expect("library lock").is_favorite(topic_id)
+        self.library
+            .read()
+            .expect("library lock")
+            .is_favorite(topic_id)
     }
 
     /// Добавляет раздачу в избранное (запоминает сигнатуру для детекта обновлений).
@@ -417,20 +431,29 @@ impl AppCore {
             signature: topic_signature(&topic),
             has_update: false,
         };
-        self.library.write().expect("library lock").add_favorite(record);
+        self.library
+            .write()
+            .expect("library lock")
+            .add_favorite(record);
         self.save_library();
         Ok(())
     }
 
     /// Убирает раздачу из избранного.
     pub fn remove_favorite(&self, topic_id: u64) {
-        self.library.write().expect("library lock").remove_favorite(topic_id);
+        self.library
+            .write()
+            .expect("library lock")
+            .remove_favorite(topic_id);
         self.save_library();
     }
 
     /// Сбрасывает отметку об обновлении избранной раздачи.
     pub fn clear_favorite_update(&self, topic_id: u64) {
-        self.library.write().expect("library lock").clear_update(topic_id);
+        self.library
+            .write()
+            .expect("library lock")
+            .clear_update(topic_id);
         self.save_library();
     }
 
@@ -483,7 +506,10 @@ impl AppCore {
 
     /// Удаляет запись истории.
     pub fn remove_history(&self, topic_id: u64) {
-        self.library.write().expect("library lock").remove_history(topic_id);
+        self.library
+            .write()
+            .expect("library lock")
+            .remove_history(topic_id);
         self.save_library();
     }
 
@@ -494,12 +520,15 @@ impl AppCore {
     }
 
     fn record_history(&self, topic_id: u64, title: &str, hash: &str) {
-        self.library.write().expect("library lock").add_history(HistoryRecord {
-            topic_id,
-            title: title.to_owned(),
-            hash: hash.to_owned(),
-            added_at: now_unix(),
-        });
+        self.library
+            .write()
+            .expect("library lock")
+            .add_history(HistoryRecord {
+                topic_id,
+                title: title.to_owned(),
+                hash: hash.to_owned(),
+                added_at: now_unix(),
+            });
         self.save_library();
     }
 
@@ -682,7 +711,10 @@ mod tests {
 
     #[test]
     fn category_detection_by_forum() {
-        assert_eq!(category_for_topic(&topic_in("Зарубежное кино")), Some("films"));
+        assert_eq!(
+            category_for_topic(&topic_in("Зарубежное кино")),
+            Some("films")
+        );
         assert_eq!(category_for_topic(&topic_in("Игры для PC")), Some("games"));
         assert_eq!(category_for_topic(&topic_in("Поп-музыка")), Some("music"));
         // «Аудиокниги» — книги, а не музыка.

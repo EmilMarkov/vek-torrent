@@ -57,7 +57,9 @@ pub fn parse_forum_select(html: &str) -> Result<Vec<ForumGroup>> {
     }
 
     if groups.is_empty() {
-        return Err(Error::parse("дерево форумов пусто — вероятно, изменилась разметка"));
+        return Err(Error::parse(
+            "дерево форумов пусто — вероятно, изменилась разметка",
+        ));
     }
     Ok(groups)
 }
