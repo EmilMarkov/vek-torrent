@@ -37,7 +37,8 @@ pub struct ImageData {
 
 #[tauri::command]
 pub fn get_config(state: State<'_, AppState>) -> AppConfig {
-    state.core.config()
+    // Пароль не покидает ядро; токен API остаётся (нужен для интеграций).
+    state.core.config_for_ui()
 }
 
 #[tauri::command]

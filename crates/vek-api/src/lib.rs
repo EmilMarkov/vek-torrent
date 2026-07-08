@@ -81,7 +81,7 @@ async fn require_auth(
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, ApiError> {
-    if request.uri().path().ends_with("/health") {
+    if request.uri().path() == "/api/v1/health" {
         return Ok(next.run(request).await);
     }
 

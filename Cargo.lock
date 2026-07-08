@@ -5168,10 +5168,8 @@ name = "vek-api"
 version = "0.1.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
  "serde",
- "serde_json",
- "thiserror 2.0.18",
+ "tempfile",
  "tokio",
  "tower",
  "tower-http 0.7.0",

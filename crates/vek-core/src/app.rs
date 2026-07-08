@@ -71,22 +71,39 @@ impl AppCore {
         self.config.read().expect("config lock").clone()
     }
 
-    /// Конфигурация без секретов (для отдачи наружу).
+    /// Конфигурация без секретов (для отдачи во внешний мир).
     pub fn config_redacted(&self) -> AppConfig {
         let mut config = self.config();
-        if !config.rutracker.password.is_empty() {
-            config.rutracker.password = String::new();
-        }
+        config.rutracker.password = String::new();
         config.api.token = String::new();
+        config
+    }
+
+    /// Конфигурация для локального UI: пароль скрыт (не покидает ядро),
+    /// токен API оставлен — пользователь должен видеть его для интеграций.
+    pub fn config_for_ui(&self) -> AppConfig {
+        let mut config = self.config();
+        config.rutracker.password = String::new();
         config
     }
 
     /// Обновляет конфигурацию: валидирует, сохраняет, пересоздаёт клиент
     /// rutracker при изменении зеркала или прокси.
-    pub fn update_config(&self, new_config: AppConfig) -> Result<()> {
+    ///
+    /// Пустые секреты трактуются как «не менять»: это позволяет UI не хранить
+    /// и не пересылать пароль, отправляя пустое поле, когда его не трогали.
+    pub fn update_config(&self, mut new_config: AppConfig) -> Result<()> {
+        let old = self.config();
+
+        if new_config.rutracker.password.is_empty() {
+            new_config.rutracker.password = old.rutracker.password.clone();
+        }
+        if new_config.api.token.trim().is_empty() {
+            new_config.api.token = old.api.token.clone();
+        }
+
         new_config.validate()?;
 
-        let old = self.config();
         let rebuild_rutracker = old.rutracker.mirror != new_config.rutracker.mirror
             || old.rutracker.proxy != new_config.rutracker.proxy;
 
