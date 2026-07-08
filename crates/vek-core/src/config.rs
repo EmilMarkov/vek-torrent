@@ -84,6 +84,31 @@ impl Default for ApiConfig {
     }
 }
 
+/// Каталоги загрузок для обобщённых категорий (пусто — общий каталог).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CategoryPaths {
+    pub films: String,
+    pub games: String,
+    pub music: String,
+    pub books: String,
+}
+
+impl CategoryPaths {
+    /// Каталог для ключа категории (`films`/`games`/`music`/`books`).
+    pub fn get(&self, category: &str) -> Option<&str> {
+        let path = match category {
+            "films" => &self.films,
+            "games" => &self.games,
+            "music" => &self.music,
+            "books" => &self.books,
+            _ => return None,
+        };
+        let path = path.trim();
+        (!path.is_empty()).then_some(path)
+    }
+}
+
 /// Параметры загрузок по умолчанию.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -92,6 +117,8 @@ pub struct DownloadsConfig {
     pub default_save_path: String,
     /// Добавлять новые торренты на паузе.
     pub add_stopped: bool,
+    /// Каталоги в зависимости от обобщённой категории раздачи.
+    pub category_paths: CategoryPaths,
 }
 
 impl AppConfig {

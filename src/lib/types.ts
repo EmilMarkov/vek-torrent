@@ -210,9 +210,17 @@ export interface ApiConfig {
   token: string;
 }
 
+export interface CategoryPaths {
+  films: string;
+  games: string;
+  music: string;
+  books: string;
+}
+
 export interface DownloadsConfig {
   default_save_path: string;
   add_stopped: boolean;
+  category_paths: CategoryPaths;
 }
 
 export interface AppConfig {

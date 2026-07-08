@@ -1,6 +1,6 @@
 //! Состояние приложения Tauri: ядро и жизненный цикл внешнего API.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use tokio::sync::Mutex;
 use vek_api::{ApiServer, ApiState};
@@ -10,6 +10,8 @@ use vek_core::SharedCore;
 pub struct AppState {
     pub core: SharedCore,
     api: Mutex<Option<ApiServer>>,
+    /// Тема из внутренней ссылки при холодном старте (забирается фронтендом).
+    pending_deeplink: StdMutex<Option<u64>>,
 }
 
 impl AppState {
@@ -17,7 +19,18 @@ impl AppState {
         Self {
             core,
             api: Mutex::new(None),
+            pending_deeplink: StdMutex::new(None),
         }
+    }
+
+    /// Запоминает тему из ссылки, открывшей приложение.
+    pub fn set_pending_deeplink(&self, topic_id: u64) {
+        *self.pending_deeplink.lock().expect("deeplink lock") = Some(topic_id);
+    }
+
+    /// Забирает отложенную тему (единожды).
+    pub fn take_pending_deeplink(&self) -> Option<u64> {
+        self.pending_deeplink.lock().expect("deeplink lock").take()
     }
 
     /// Останавливает текущий API-сервер (если запущен) и, если он включён в

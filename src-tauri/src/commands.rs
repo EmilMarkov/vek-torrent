@@ -232,6 +232,12 @@ pub async fn stop_engine(state: State<'_, AppState>) -> CommandResult<()> {
     Ok(())
 }
 
+/// Забирает отложенную тему из внутренней ссылки (при холодном старте).
+#[tauri::command]
+pub fn take_pending_deeplink(state: State<'_, AppState>) -> Option<u64> {
+    state.take_pending_deeplink()
+}
+
 /// Перезапускает внешний API согласно текущей конфигурации.
 #[tauri::command]
 pub async fn restart_api(state: State<'_, AppState>) -> CommandResult<()> {

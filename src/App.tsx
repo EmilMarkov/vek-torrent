@@ -5,6 +5,7 @@ import { Lightbox } from "@/components/Lightbox";
 import { Sidebar } from "@/components/Sidebar";
 import { StatusBar } from "@/components/StatusBar";
 import { Toaster } from "@/components/Toaster";
+import { useDeepLink } from "@/hooks/useDeepLink";
 import { useDownloadsListener } from "@/hooks/useDownloads";
 import { useFavoritesListener } from "@/hooks/useLibrary";
 import { DownloadsPage } from "@/pages/DownloadsPage";
@@ -22,6 +23,8 @@ export default function App() {
   useDownloadsListener();
   // Слушатель фоновых проверок обновлений избранного.
   useFavoritesListener();
+  // Обработка внутренних ссылок (переход на раздачу).
+  useDeepLink();
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-bg text-text">

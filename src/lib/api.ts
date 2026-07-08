@@ -88,5 +88,6 @@ export const api = {
   status: () => call<AppStatus>("status"),
   startEngine: () => call<void>("start_engine"),
   stopEngine: () => call<void>("stop_engine"),
+  takePendingDeeplink: () => call<number | null>("take_pending_deeplink"),
   restartApi: () => call<void>("restart_api"),
 };

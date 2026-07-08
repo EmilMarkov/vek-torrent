@@ -8,12 +8,20 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{Emitter, Manager, RunEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
 use vek_core::{
     AppCore,
     models::{DownloadItem, TransferSummary},
 };
 
 use state::AppState;
+
+/// Разбирает внутреннюю ссылку `vektorrent://topic/<id>` в идентификатор темы.
+fn parse_topic_url(url: &str) -> Option<u64> {
+    let rest = url.strip_prefix("vektorrent://topic/")?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
 
 /// Полезная нагрузка события обновления загрузок.
 #[derive(Debug, Clone, Serialize)]
@@ -32,7 +40,23 @@ const FAVORITES_CHECK_INTERVAL: Duration = Duration::from_secs(3 * 60 * 60);
 pub fn run() {
     init_tracing();
 
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    // Единственный экземпляр (Windows/Linux): второй запуск фокусирует окно.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -43,6 +67,29 @@ pub fn run() {
 
             let core = AppCore::new(app_dir)?;
             app.manage(AppState::new(core.clone()));
+
+            // Обработка внутренних ссылок vektorrent://topic/<id>.
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let _ = app.deep_link().register_all();
+
+            // Холодный старт: ссылка, которой открыли приложение.
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for url in urls {
+                    if let Some(id) = parse_topic_url(url.as_str()) {
+                        app.state::<AppState>().set_pending_deeplink(id);
+                    }
+                }
+            }
+
+            // Приложение уже запущено: сразу переходим на тему.
+            let deep_link_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    if let Some(id) = parse_topic_url(url.as_str()) {
+                        let _ = deep_link_handle.emit("open-topic", id);
+                    }
+                }
+            });
 
             spawn_background_tasks(app.handle().clone(), core);
             Ok(())
@@ -77,6 +124,7 @@ pub fn run() {
             commands::status,
             commands::start_engine,
             commands::stop_engine,
+            commands::take_pending_deeplink,
             commands::restart_api,
         ])
         .build(tauri::generate_context!())

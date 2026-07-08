@@ -333,10 +333,16 @@ impl AppCore {
             .with_auth_retry(|client| async move { client.topic(topic_id).await })
             .await?;
         let source = self.pick_source(topic_id, &topic, options.prefer_magnet).await?;
-        let hash = engine
-            .add(source, self.add_params(&config, &options))
-            .await
-            .map_err(Error::from)?;
+
+        // Если каталог не задан явно — используем каталог категории раздачи.
+        let mut params = self.add_params(&config, &options);
+        if params.output_folder.is_none()
+            && let Some(category) = category_for_topic(&topic)
+        {
+            params.output_folder = config.downloads.category_paths.get(category).map(str::to_owned);
+        }
+
+        let hash = engine.add(source, params).await.map_err(Error::from)?;
         self.record_history(topic_id, &topic.title, &hash);
         Ok(hash)
     }
@@ -529,6 +535,30 @@ impl AppCore {
     }
 }
 
+/// Определяет обобщённую категорию раздачи по названиям разделов (хлебных
+/// крошек) и заголовку. Порядок важен: книги проверяются раньше музыки, чтобы
+/// «аудиокниги» не относились к музыке.
+fn category_for_topic(topic: &TopicPage) -> Option<&'static str> {
+    let mut haystack = topic.title.to_lowercase();
+    for forum in &topic.forum_path {
+        haystack.push(' ');
+        haystack.push_str(&forum.name.to_lowercase());
+    }
+    let has = |needles: &[&str]| needles.iter().any(|n| haystack.contains(n));
+
+    if has(&["кино", "фильм", "сериал", "мультфильм"]) {
+        Some("films")
+    } else if has(&["книг", "литератур"]) {
+        Some("books")
+    } else if has(&["музык", "песн", "альбом", "дискограф"]) {
+        Some("music")
+    } else if has(&["игр", "game", "консол"]) {
+        Some("games")
+    } else {
+        None
+    }
+}
+
 /// Сигнатура состояния раздачи для детекта обновлений: дата регистрации +
 /// размер. При переоформлении раздачи на трекере они меняются.
 fn topic_signature(topic: &TopicPage) -> String {
@@ -633,5 +663,30 @@ mod tests {
     async fn login_without_credentials_fails() {
         let core = core();
         assert!(matches!(core.login(None).await, Err(Error::NoCredentials)));
+    }
+
+    fn topic_in(forum: &str) -> rutracker::models::TopicPage {
+        rutracker::models::TopicPage {
+            id: 1,
+            title: "Раздача".into(),
+            forum_path: vec![rutracker::models::ForumRef {
+                id: 1,
+                name: forum.into(),
+            }],
+            magnet: None,
+            has_torrent_file: true,
+            stats: Default::default(),
+            body: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn category_detection_by_forum() {
+        assert_eq!(category_for_topic(&topic_in("Зарубежное кино")), Some("films"));
+        assert_eq!(category_for_topic(&topic_in("Игры для PC")), Some("games"));
+        assert_eq!(category_for_topic(&topic_in("Поп-музыка")), Some("music"));
+        // «Аудиокниги» — книги, а не музыка.
+        assert_eq!(category_for_topic(&topic_in("Аудиокниги")), Some("books"));
+        assert_eq!(category_for_topic(&topic_in("Прочее ПО")), None);
     }
 }

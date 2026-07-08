@@ -83,10 +83,13 @@ which = "8"
 wiremock = "0.6"
 
 # Tauri
-tauri = { version = "2.11", features = [] }
+tauri = { version = "2.11", features = ["tray-icon"] }
 tauri-build = { version = "2", features = [] }
+tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

@@ -96,6 +96,20 @@ function SettingsForm({ initial }: { initial: AppConfig }) {
       patch((c) => ({ ...c, downloads: { ...c.downloads, default_save_path: path } }));
   };
 
+  const setCategoryPath = (key: keyof AppConfig["downloads"]["category_paths"], value: string) =>
+    patch((c) => ({
+      ...c,
+      downloads: {
+        ...c.downloads,
+        category_paths: { ...c.downloads.category_paths, [key]: value },
+      },
+    }));
+
+  const pickCategoryDir = async (key: keyof AppConfig["downloads"]["category_paths"]) => {
+    const path = await open({ directory: true });
+    if (typeof path === "string") setCategoryPath(key, path);
+  };
+
   const restartApi = async () => {
     if (await save()) {
       try {
@@ -243,6 +257,33 @@ function SettingsForm({ initial }: { initial: AppConfig }) {
             }
             label="Добавлять новые загрузки на паузе"
           />
+
+          <div className="mt-1 flex flex-col gap-2 border-t border-border pt-3">
+            <span className="text-xs font-medium text-muted">Каталоги по категориям</span>
+            <span className="text-[11px] text-faint">
+              Раздачи определённой категории сохраняются в свой каталог (если задан).
+            </span>
+            {(
+              [
+                ["films", "Фильмы"],
+                ["games", "Игры"],
+                ["music", "Музыка"],
+                ["books", "Книги"],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="w-16 shrink-0 text-xs text-muted">{label}</span>
+                <Input
+                  value={config.downloads.category_paths[key]}
+                  placeholder="как каталог по умолчанию"
+                  onChange={(e) => setCategoryPath(key, e.target.value)}
+                />
+                <Button variant="secondary" onClick={() => pickCategoryDir(key)}>
+                  <FolderOpen className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
         </Section>
 
         <Section

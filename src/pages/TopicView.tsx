@@ -15,6 +15,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { ContentBlocks } from "@/components/ContentBlockView";
 import { openDownloadModal } from "@/components/DownloadModal";
+import { ShareButton } from "@/components/ShareButton";
 import { toast } from "@/components/Toaster";
 import { Badge, Button, EmptyState, Spinner } from "@/components/ui";
 import { useAddDownload } from "@/hooks/useAddDownload";
@@ -120,15 +121,17 @@ export function TopicView({ topicId }: { topicId: number }) {
                   Открыть внешне
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                onClick={toggleFavorite}
-                title={favorite ? "Убрать из избранного" : "В избранное"}
-                className="ml-auto"
-              >
-                <Heart className={clsx("h-4 w-4", favorite && "fill-danger text-danger")} />
-                {favorite ? "В избранном" : "В избранное"}
-              </Button>
+              <div className="ml-auto flex items-center gap-2">
+                <ShareButton topicId={data.id} />
+                <Button
+                  variant="ghost"
+                  onClick={toggleFavorite}
+                  title={favorite ? "Убрать из избранного" : "В избранное"}
+                >
+                  <Heart className={clsx("h-4 w-4", favorite && "fill-danger text-danger")} />
+                  {favorite ? "В избранном" : "В избранное"}
+                </Button>
+              </div>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-4 rounded-lg border border-border bg-surface-2/50 px-4 py-3 text-sm">
