@@ -1,11 +1,12 @@
 //! DTO доменного слоя, отдаваемые в UI и внешний API (camelCase).
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use qbit::models::{TorrentInfo, TorrentState, TransferInfo};
 
 /// Элемент списка загрузок (UI-дружественная проекция [`TorrentInfo`]).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadItem {
     pub hash: String,
@@ -61,7 +62,7 @@ impl From<TorrentInfo> for DownloadItem {
 }
 
 /// Глобальная статистика передачи (UI-проекция).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferSummary {
     pub dl_speed: i64,
@@ -84,7 +85,7 @@ impl From<TransferInfo> for TransferSummary {
 }
 
 /// Параметры добавления раздачи в загрузки.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AddOptions {
     /// Каталог сохранения (иначе — из конфигурации/qBittorrent).
@@ -98,7 +99,7 @@ pub struct AddOptions {
 }
 
 /// Статус подсистем приложения.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStatus {
     pub qbit_running: bool,

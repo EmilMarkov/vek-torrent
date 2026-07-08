@@ -252,6 +252,22 @@ impl AppCore {
         Ok(client.transfer_info().await?.into())
     }
 
+    /// Снимок загрузок и статистики БЕЗ запуска sidecar (для фонового опроса).
+    ///
+    /// Возвращает `None`, если qBittorrent сейчас не запущен.
+    pub async fn snapshot(&self) -> Option<(Vec<DownloadItem>, TransferSummary)> {
+        let client = self.qbit_client_if_alive().await?;
+        let torrents = client.torrents(&Default::default()).await.ok()?;
+        let transfer = client.transfer_info().await.ok()?;
+        let items = torrents.into_iter().map(DownloadItem::from).collect();
+        Some((items, transfer.into()))
+    }
+
+    /// Запущен ли sidecar qBittorrent прямо сейчас.
+    pub async fn qbit_running(&self) -> bool {
+        self.qbit_client_if_alive().await.is_some()
+    }
+
     /// Категории qBittorrent.
     pub async fn qbit_categories(&self) -> Result<Vec<qbit::models::Category>> {
         let client = self.ensure_qbit().await?;

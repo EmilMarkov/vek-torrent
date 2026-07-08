@@ -1,9 +1,10 @@
 //! Модели данных qBittorrent Web API v2.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// Информация о торренте (подмножество полей `/torrents/info`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TorrentInfo {
     pub hash: String,
     #[serde(default)]
@@ -58,7 +59,7 @@ impl TorrentInfo {
 }
 
 /// Нормализованная категория состояния торрента.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TorrentState {
     Downloading,
@@ -104,7 +105,7 @@ impl TorrentState {
 }
 
 /// Глобальная статистика передачи (`/transfer/info`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct TransferInfo {
     #[serde(default)]
     pub dl_info_speed: i64,
@@ -120,7 +121,7 @@ pub struct TransferInfo {
 }
 
 /// Категория qBittorrent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Category {
     #[serde(default)]
     pub name: String,

@@ -1,9 +1,10 @@
 //! Типизированные модели данных трекера.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// Статус модерации раздачи.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalStatus {
     /// Проверено модератором.
@@ -54,14 +55,14 @@ impl ApprovalStatus {
 }
 
 /// Ссылка на форум (раздел) трекера.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ForumRef {
     pub id: i64,
     pub name: String,
 }
 
 /// Строка результатов поиска.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SearchResult {
     pub topic_id: u64,
     pub title: String,
@@ -78,7 +79,7 @@ pub struct SearchResult {
 }
 
 /// Страница результатов поиска.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SearchPage {
     pub items: Vec<SearchResult>,
     /// Всего найдено на сервере (максимум у rutracker — 500).
@@ -97,7 +98,7 @@ impl SearchPage {
 }
 
 /// Поле сортировки поиска (серверная сортировка rutracker).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SortField {
     Registered,
@@ -123,7 +124,7 @@ impl SortField {
 }
 
 /// Направление сортировки.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SortOrder {
     Asc,
@@ -141,7 +142,7 @@ impl SortOrder {
 }
 
 /// Параметры поискового запроса.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct SearchRequest {
     /// Текст запроса.
     pub query: String,
@@ -158,7 +159,7 @@ pub struct SearchRequest {
 }
 
 /// Вызов капчи на форме логина.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CaptchaChallenge {
     /// Значение скрытого поля `cap_sid`.
     pub sid: String,
@@ -169,7 +170,7 @@ pub struct CaptchaChallenge {
 }
 
 /// Ответ пользователя на капчу.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CaptchaAnswer {
     pub sid: String,
     pub code_field: String,
@@ -177,14 +178,14 @@ pub struct CaptchaAnswer {
 }
 
 /// Состояние сессии на трекере.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SessionInfo {
     pub logged_in: bool,
     pub username: Option<String>,
 }
 
 /// Сводная статистика торрента на странице раздачи.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct TorrentStats {
     pub size_bytes: Option<u64>,
     pub seeders: Option<u64>,
@@ -196,7 +197,7 @@ pub struct TorrentStats {
 }
 
 /// Страница раздачи.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TopicPage {
     pub id: u64,
     pub title: String,
@@ -212,7 +213,7 @@ pub struct TopicPage {
 }
 
 /// Блок содержимого раздачи.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     Paragraph {
@@ -240,7 +241,7 @@ pub enum ContentBlock {
 }
 
 /// Строчный элемент внутри параграфа.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inline {
     Text {
@@ -267,14 +268,14 @@ pub enum Inline {
 }
 
 /// Группа форумов в дереве категорий.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ForumGroup {
     pub title: String,
     pub forums: Vec<ForumEntry>,
 }
 
 /// Форум в дереве категорий.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ForumEntry {
     pub id: i64,
     pub name: String,
