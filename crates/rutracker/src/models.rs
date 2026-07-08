@@ -224,10 +224,12 @@ pub enum ContentBlock {
     },
     Spoiler {
         title: String,
+        #[schema(no_recursion)]
         blocks: Vec<ContentBlock>,
     },
     Quote {
         author: Option<String>,
+        #[schema(no_recursion)]
         blocks: Vec<ContentBlock>,
     },
     Code {
@@ -235,6 +237,7 @@ pub enum ContentBlock {
     },
     List {
         ordered: bool,
+        #[schema(no_recursion)]
         items: Vec<Vec<ContentBlock>>,
     },
     Hr,
