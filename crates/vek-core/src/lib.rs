@@ -3,6 +3,8 @@
 //! Объединяет клиент rutracker и sidecar qBittorrent в единое ядро
 //! [`AppCore`], предоставляя операции поиска, просмотра раздач и управления
 //! загрузками для слоя приложения (Tauri) и внешнего REST API.
+//!
+//! Точка входа — [`AppCore`]; конфигурация — [`AppConfig`].
 
 pub mod app;
 pub mod config;
