@@ -144,11 +144,12 @@ impl Engine {
 
     /// Находит управляемый торрент по hex-хэшу.
     ///
-    /// Итерируемся вручную через `next()`: обобщённые методы (`find`, `map`)
-    /// нельзя вызвать на `&mut dyn Iterator` (объект-безопасность).
+    /// Итерируемся циклом `for` по `&mut *torrents`: обобщённые комбинаторы
+    /// (`Iterator::find`, `map`) нельзя вызвать на `&mut dyn Iterator` — они
+    /// требуют `Self: Sized`.
     fn find(&self, hash: &str) -> Option<(usize, Handle)> {
         self.session.with_torrents(|torrents| {
-            while let Some((id, handle)) = torrents.next() {
+            for (id, handle) in &mut *torrents {
                 if handle.info_hash().as_string() == hash {
                     return Some((id, handle.clone()));
                 }
@@ -188,7 +189,7 @@ impl Engine {
     pub fn torrents(&self) -> Vec<EngineTorrent> {
         let handles: Vec<Handle> = self.session.with_torrents(|torrents| {
             let mut handles = Vec::new();
-            while let Some((_, handle)) = torrents.next() {
+            for (_, handle) in &mut *torrents {
                 handles.push(handle.clone());
             }
             handles
