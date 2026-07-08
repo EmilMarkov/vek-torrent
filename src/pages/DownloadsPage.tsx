@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { PageHeader } from "@/components/PageHeader";
 import { toast } from "@/components/Toaster";
 import { Badge, Button, EmptyState, Spinner } from "@/components/ui";
 import { useDownloadsSnapshot, useDownloadsStore } from "@/hooks/useDownloads";
@@ -50,40 +51,33 @@ export function DownloadsPage() {
   const loading = useDownloadsStore((s) => s.loading);
   const error = useDownloadsStore((s) => s.error);
 
-  if (loading && items.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner className="h-6 w-6" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <EmptyState
-        icon={<TriangleAlert className="h-10 w-10 text-warn" />}
-        title="qBittorrent недоступен"
-        hint={`${error} Убедитесь, что qBittorrent установлен, и проверьте путь в настройках.`}
-      />
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <EmptyState
-        icon={<Download className="h-10 w-10" />}
-        title="Нет активных загрузок"
-        hint="Найдите раздачу на вкладке «Поиск» и добавьте её — она появится здесь."
-      />
-    );
-  }
-
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <div className="flex flex-col divide-y divide-border/60 px-3">
-        {items.map((item) => (
-          <DownloadRow key={item.hash} item={item} />
-        ))}
+    <div className="flex h-full flex-col">
+      <PageHeader title="Загрузки" />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {loading && items.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <Spinner className="h-6 w-6" />
+          </div>
+        ) : error ? (
+          <EmptyState
+            icon={<TriangleAlert className="h-10 w-10 text-warn" />}
+            title="Движок загрузок недоступен"
+            hint={error}
+          />
+        ) : items.length === 0 ? (
+          <EmptyState
+            icon={<Download className="h-10 w-10" />}
+            title="Нет активных загрузок"
+            hint="Найдите раздачу на вкладке «Поиск» и добавьте её — она появится здесь."
+          />
+        ) : (
+          <div className="flex flex-col divide-y divide-border/60 px-3">
+            {items.map((item) => (
+              <DownloadRow key={item.hash} item={item} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

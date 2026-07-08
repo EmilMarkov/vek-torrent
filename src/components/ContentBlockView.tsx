@@ -92,10 +92,10 @@ function BlockImage({ src }: { src: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-faint">
+      <span className="inline-flex w-fit items-center gap-2 self-start rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-faint">
         <ImageOff className="h-4 w-4" />
         Изображение недоступно
-      </div>
+      </span>
     );
   }
   return (
@@ -104,7 +104,10 @@ function BlockImage({ src }: { src: string }) {
       loading="lazy"
       onError={() => setFailed(true)}
       onClick={() => void openUrl(src)}
-      className="max-h-96 cursor-zoom-in rounded-lg border border-border object-contain"
+      // self-start не даёт flex-колонке растягивать картинку на всю ширину,
+      // а h-auto/w-auto/max-* не увеличивают маленькие изображения (флаги,
+      // спектрограммы), сохраняя их исходный размер как на rutracker.
+      className="h-auto max-h-[70vh] w-auto max-w-full cursor-zoom-in self-start rounded-lg border border-border object-contain"
       alt=""
     />
   );

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { CaptchaModal } from "@/components/CaptchaModal";
+import { PageHeader } from "@/components/PageHeader";
 import { toast } from "@/components/Toaster";
 import { Button, Input, Spinner, Toggle } from "@/components/ui";
 import { useStatus } from "@/hooks/useStatus";
@@ -17,17 +18,19 @@ const MIRRORS = ["https://rutracker.org", "https://rutracker.net", "https://rutr
 export function SettingsPage() {
   const { data: initial, isLoading } = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
 
-  if (isLoading || !initial) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner className="h-6 w-6" />
-      </div>
-    );
-  }
-
-  // Ключ по загруженным данным: форма инициализирует локальное состояние из
-  // props без синхронизации через эффект.
-  return <SettingsForm initial={initial} />;
+  return (
+    <div className="flex h-full flex-col">
+      <PageHeader title="Настройки" />
+      {isLoading || !initial ? (
+        <div className="flex flex-1 items-center justify-center">
+          <Spinner className="h-6 w-6" />
+        </div>
+      ) : (
+        // Форма инициализирует локальное состояние из props без эффекта.
+        <SettingsForm initial={initial} />
+      )}
+    </div>
+  );
 }
 
 function SettingsForm({ initial }: { initial: AppConfig }) {
@@ -112,7 +115,7 @@ function SettingsForm({ initial }: { initial: AppConfig }) {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto flex max-w-2xl flex-col gap-6 px-6 py-6">
         <Section
           title="Аккаунт rutracker"

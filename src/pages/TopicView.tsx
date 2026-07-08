@@ -13,7 +13,7 @@ import { formatNumber, formatSize } from "@/lib/format";
 import { useAppStore } from "@/store";
 
 export function TopicView({ topicId }: { topicId: number }) {
-  const closeTopic = useAppStore((s) => s.closeTopic);
+  const back = useAppStore((s) => s.back);
   const { add, adding } = useAddDownload();
 
   const { data, isLoading, error } = useQuery({
@@ -25,7 +25,7 @@ export function TopicView({ topicId }: { topicId: number }) {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-3 border-b border-border px-5 py-3">
-        <Button variant="ghost" onClick={closeTopic} className="px-2">
+        <Button variant="ghost" onClick={back} className="px-2">
           <ArrowLeft className="h-4 w-4" />
           Назад
         </Button>
