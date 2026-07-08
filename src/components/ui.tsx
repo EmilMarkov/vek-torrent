@@ -1,7 +1,8 @@
 // Небольшие переиспользуемые UI-примитивы в тёмной теме.
 
 import { clsx } from "clsx";
-import { Loader2 } from "lucide-react";
+import { Check, ChevronDown, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -59,6 +60,81 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
 
 export function Spinner({ className }: { className?: string }) {
   return <Loader2 className={clsx("animate-spin text-muted", className)} />;
+}
+
+export interface SelectOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+/** Кастомный выпадающий список — единый вид на всех ОС (не нативный select). */
+export function Select<T extends string>({
+  value,
+  onChange,
+  options,
+  className,
+}: {
+  value: T;
+  onChange: (value: T) => void;
+  options: SelectOption<T>[];
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  const current = options.find((o) => o.value === value);
+
+  return (
+    <div ref={ref} className={clsx("relative", className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text hover:border-border-strong focus:border-accent/70 focus:outline-none"
+      >
+        <span className="truncate">{current?.label ?? "—"}</span>
+        <ChevronDown
+          className={clsx("h-4 w-4 shrink-0 text-faint transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 left-0 z-20 mt-1 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface-3 py-1 shadow-lg">
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => {
+                onChange(o.value);
+                setOpen(false);
+              }}
+              className={clsx(
+                "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-surface-2",
+                o.value === value ? "text-accent" : "text-text",
+              )}
+            >
+              <Check
+                className={clsx("h-3.5 w-3.5", o.value === value ? "opacity-100" : "opacity-0")}
+              />
+              <span className="truncate">{o.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Toggle({

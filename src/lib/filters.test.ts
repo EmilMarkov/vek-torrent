@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { applyFilters, DEFAULT_FILTERS, parseRefine, parseSizeInput } from "./filters";
-import type { SearchResult } from "./types";
+import {
+  applyFilters,
+  DEFAULT_FILTERS,
+  forumIdsForCategory,
+  GENERAL_CATEGORIES,
+  parseRefine,
+  parseSizeInput,
+} from "./filters";
+import type { ForumGroup, SearchResult } from "./types";
 
 function result(over: Partial<SearchResult>): SearchResult {
   return {
@@ -30,6 +37,18 @@ describe("parseRefine", () => {
     const parsed = parseRefine("  ubuntu   -  ");
     expect(parsed.include).toEqual(["ubuntu"]);
     expect(parsed.exclude).toEqual([]);
+  });
+
+  it("поддерживает словосочетания в кавычках, включая исключающие", () => {
+    const parsed = parseRefine('linux "linux mint" -beta -"release candidate"');
+    expect(parsed.include).toEqual(["linux", "linux mint"]);
+    expect(parsed.exclude).toEqual(["beta", "release candidate"]);
+  });
+
+  it('исключает словосочетание -"Fallout Shelter"', () => {
+    const parsed = parseRefine('fallout -"fallout shelter"');
+    expect(parsed.include).toEqual(["fallout"]);
+    expect(parsed.exclude).toEqual(["fallout shelter"]);
   });
 });
 
@@ -96,6 +115,43 @@ describe("applyFilters", () => {
     const snapshot = items.map((r) => r.topic_id);
     applyFilters(items, { ...DEFAULT_FILTERS, sortKey: "seeders", sortDesc: true });
     expect(items.map((r) => r.topic_id)).toEqual(snapshot);
+  });
+
+  it("исключает словосочетание из выдачи", () => {
+    const out = applyFilters(items, { ...DEFAULT_FILTERS, refine: '-"ubuntu 24.04"' });
+    expect(out.map((r) => r.topic_id)).toEqual([1, 3]);
+  });
+
+  it("фильтрует по автору", () => {
+    const list = [
+      result({ topic_id: 1, author: "mint_keeper" }),
+      result({ topic_id: 2, author: "someone_else" }),
+    ];
+    const out = applyFilters(list, { ...DEFAULT_FILTERS, author: "mint" });
+    expect(out.map((r) => r.topic_id)).toEqual([1]);
+  });
+});
+
+describe("forumIdsForCategory", () => {
+  const groups: ForumGroup[] = [
+    { title: "Кино, Видео и ТВ", forums: [{ id: 1, name: "Зарубежное кино", depth: 0 }] },
+    { title: "Игры", forums: [{ id: 2, name: "Игры для PC", depth: 0 }] },
+    { title: "Музыка", forums: [{ id: 3, name: "Поп-музыка", depth: 0 }] },
+    { title: "Книги и журналы", forums: [{ id: 4, name: "Аудиокниги", depth: 0 }] },
+  ];
+
+  const cat = (key: string) => GENERAL_CATEGORIES.find((c) => c.key === key)!;
+
+  it("маппит разделы по ключевым словам", () => {
+    expect(forumIdsForCategory(groups, cat("films"))).toContain(1);
+    expect(forumIdsForCategory(groups, cat("games"))).toContain(2);
+    expect(forumIdsForCategory(groups, cat("music"))).toContain(3);
+    expect(forumIdsForCategory(groups, cat("books"))).toContain(4);
+  });
+
+  it("аудиокниги относятся к книгам, а не к музыке", () => {
+    expect(forumIdsForCategory(groups, cat("music"))).not.toContain(4);
+    expect(forumIdsForCategory(groups, cat("books"))).toContain(4);
   });
 });
 

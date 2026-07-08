@@ -1,13 +1,15 @@
 // Правый сайдбар фильтров результатов поиска (мгновенная клиентская фильтрация).
 
 import { useQuery } from "@tanstack/react-query";
-import { Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Search, X } from "lucide-react";
 import { useState } from "react";
 
-import { Input, Toggle } from "@/components/ui";
+import { Input, Select, Toggle } from "@/components/ui";
 import { api } from "@/lib/api";
 import {
   DEFAULT_FILTERS,
+  forumIdsForCategory,
+  GENERAL_CATEGORIES,
   hasActiveFilters,
   parseSizeInput,
   type ClientFilters,
@@ -15,22 +17,19 @@ import {
 } from "@/lib/filters";
 import type { ForumGroup } from "@/lib/types";
 
-const SORT_OPTIONS: { key: ResultSortKey; label: string }[] = [
-  { key: "relevance", label: "По релевантности" },
-  { key: "seeders", label: "По сидам" },
-  { key: "size", label: "По размеру" },
-  { key: "downloads", label: "По скачиваниям" },
-  { key: "date", label: "По дате" },
-  { key: "title", label: "По названию" },
+const SORT_OPTIONS: { value: ResultSortKey; label: string }[] = [
+  { value: "relevance", label: "По релевантности" },
+  { value: "seeders", label: "По сидам" },
+  { value: "size", label: "По размеру" },
+  { value: "downloads", label: "По скачиваниям" },
+  { value: "date", label: "По дате" },
+  { value: "title", label: "По названию" },
 ];
 
 interface Props {
   filters: ClientFilters;
   onChange: (filters: ClientFilters) => void;
 }
-
-const selectClass =
-  "w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text focus:border-accent/70 focus:outline-none";
 
 /** Компактное представление размера в байтах для поля ввода фильтра. */
 function bytesToInput(bytes: number | null): string {
@@ -58,6 +57,13 @@ export function FiltersSidebar({ filters, onChange }: Props) {
     filters.minSeeders === null ? "" : String(filters.minSeeders),
   );
 
+  const categories = useQuery({
+    queryKey: ["categories"],
+    queryFn: api.categories,
+    staleTime: 10 * 60_000,
+    retry: false,
+  });
+
   const update = (patch: Partial<ClientFilters>) => onChange({ ...filters, ...patch });
 
   const reset = () => {
@@ -83,11 +89,19 @@ export function FiltersSidebar({ filters, onChange }: Props) {
       </div>
 
       <div className="flex flex-col gap-4 p-4">
-        <Field label="Уточнить (−слово исключает)">
+        <Field label={'Уточнить (−слово, −"фраза" исключают)'}>
           <Input
             value={filters.refine}
             onChange={(e) => update({ refine: e.target.value })}
-            placeholder="напр. 1080p -ts"
+            placeholder={'напр. 1080p -ts -"Fallout Shelter"'}
+          />
+        </Field>
+
+        <Field label="Автор">
+          <Input
+            value={filters.author}
+            onChange={(e) => update({ author: e.target.value })}
+            placeholder="имя автора раздачи"
           />
         </Field>
 
@@ -127,28 +141,28 @@ export function FiltersSidebar({ filters, onChange }: Props) {
           />
         </Field>
 
-        <div className="grid grid-cols-1 gap-2">
-          <Field label="Сортировка">
-            <select
+        <Field label="Сортировка">
+          <div className="flex items-center gap-2">
+            <Select
+              className="flex-1"
               value={filters.sortKey}
-              onChange={(e) => update({ sortKey: e.target.value as ResultSortKey })}
-              className={selectClass}
+              onChange={(sortKey) => update({ sortKey })}
+              options={SORT_OPTIONS}
+            />
+            <button
+              onClick={() => update({ sortDesc: !filters.sortDesc })}
+              disabled={filters.sortKey === "relevance"}
+              title={filters.sortDesc ? "По убыванию" : "По возрастанию"}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-muted hover:border-border-strong hover:text-text disabled:opacity-40"
             >
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <button
-            onClick={() => update({ sortDesc: !filters.sortDesc })}
-            disabled={filters.sortKey === "relevance"}
-            className={`${selectClass} text-left hover:border-border-strong disabled:opacity-40`}
-          >
-            {filters.sortDesc ? "По убыванию ↓" : "По возрастанию ↑"}
-          </button>
-        </div>
+              {filters.sortDesc ? (
+                <ArrowDown className="h-4 w-4" />
+              ) : (
+                <ArrowUp className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+        </Field>
 
         <Toggle
           checked={filters.onlyApproved}
@@ -156,26 +170,92 @@ export function FiltersSidebar({ filters, onChange }: Props) {
           label="Только проверенные"
         />
 
-        <ForumFilter selected={filters.forumIds} onChange={(forumIds) => update({ forumIds })} />
+        <CategoryChips
+          groups={categories.data ?? []}
+          forumIds={filters.forumIds}
+          onChange={(forumIds) => update({ forumIds })}
+        />
+
+        <ForumFilter
+          groups={categories.data ?? null}
+          loading={categories.isLoading}
+          error={categories.isError}
+          selected={filters.forumIds}
+          onChange={(forumIds) => update({ forumIds })}
+        />
       </div>
     </aside>
   );
 }
 
+/** Чекбоксы обобщённых категорий: выбирают все подходящие разделы rutracker. */
+function CategoryChips({
+  groups,
+  forumIds,
+  onChange,
+}: {
+  groups: ForumGroup[];
+  forumIds: number[];
+  onChange: (ids: number[]) => void;
+}) {
+  if (groups.length === 0) return null;
+  const selected = new Set(forumIds);
+
+  const toggle = (categoryKey: string) => {
+    const category = GENERAL_CATEGORIES.find((c) => c.key === categoryKey);
+    if (!category) return;
+    const ids = forumIdsForCategory(groups, category);
+    if (ids.length === 0) return;
+    const active = ids.every((id) => selected.has(id));
+    const next = new Set(selected);
+    for (const id of ids) {
+      if (active) next.delete(id);
+      else next.add(id);
+    }
+    onChange([...next]);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-medium text-faint">Категория</span>
+      <div className="flex flex-wrap gap-1.5">
+        {GENERAL_CATEGORIES.map((category) => {
+          const ids = forumIdsForCategory(groups, category);
+          const active = ids.length > 0 && ids.every((id) => selected.has(id));
+          return (
+            <button
+              key={category.key}
+              onClick={() => toggle(category.key)}
+              disabled={ids.length === 0}
+              className={
+                active
+                  ? "rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent"
+                  : "rounded-full border border-border px-3 py-1 text-xs text-muted hover:border-border-strong hover:text-text disabled:opacity-40"
+              }
+            >
+              {category.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ForumFilter({
+  groups,
+  loading,
+  error,
   selected,
   onChange,
 }: {
+  groups: ForumGroup[] | null;
+  loading: boolean;
+  error: boolean;
   selected: number[];
   onChange: (ids: number[]) => void;
 }) {
   const [query, setQuery] = useState("");
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["categories"],
-    queryFn: api.categories,
-    staleTime: 10 * 60_000,
-    retry: false,
-  });
 
   const selectedSet = new Set(selected);
   const toggle = (id: number) => {
@@ -186,7 +266,7 @@ function ForumFilter({
   };
 
   const q = query.trim().toLowerCase();
-  const groups = filterGroups(data ?? [], q);
+  const visible = filterGroups(groups ?? [], q);
 
   return (
     <div className="flex flex-col gap-2">
@@ -199,9 +279,9 @@ function ForumFilter({
         )}
       </div>
 
-      {isLoading ? (
+      {loading ? (
         <p className="text-xs text-faint">Загрузка разделов…</p>
-      ) : isError || !data ? (
+      ) : error || !groups ? (
         <p className="text-xs text-faint">
           Разделы доступны после входа на rutracker (см. Настройки).
         </p>
@@ -217,10 +297,10 @@ function ForumFilter({
             />
           </div>
           <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-surface-2/50">
-            {groups.length === 0 ? (
+            {visible.length === 0 ? (
               <p className="px-3 py-2 text-xs text-faint">Ничего не найдено</p>
             ) : (
-              groups.map((group) => (
+              visible.map((group) => (
                 <div key={group.title}>
                   <div className="sticky top-0 bg-surface-3/90 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-muted uppercase backdrop-blur">
                     {group.title}
