@@ -4,6 +4,7 @@ import { clsx } from "clsx";
 import { Download, Heart, History, Search, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+import { useDownloadsStore } from "@/hooks/useDownloads";
 import { useFavoriteUpdatesCount } from "@/hooks/useLibrary";
 import { useAppStore, useCurrentRoute, type MainView } from "@/store";
 
@@ -15,11 +16,22 @@ const NAV: { view: MainView; label: string; icon: LucideIcon }[] = [
   { view: "settings", label: "Настройки", icon: Settings },
 ];
 
+/** Цвет индикатора загрузок по агрегированному статусу. */
+function downloadsDotColor(states: string[]): string | null {
+  if (states.length === 0) return null;
+  if (states.includes("error")) return "bg-danger";
+  if (states.includes("downloading")) return "bg-accent";
+  if (states.includes("checking")) return "bg-warn";
+  if (states.some((s) => s === "seeding" || s === "paused")) return "bg-success";
+  return null;
+}
+
 export function Sidebar() {
   const current = useCurrentRoute();
   const setView = useAppStore((s) => s.setView);
   const activeView = current.kind === "topic" ? null : current.kind;
   const favoriteUpdates = useFavoriteUpdatesCount();
+  const downloadsDot = downloadsDotColor(useDownloadsStore((s) => s.items).map((i) => i.state));
 
   return (
     <nav className="flex w-14 flex-col items-center gap-1 border-r border-border bg-surface py-3">
@@ -43,6 +55,15 @@ export function Sidebar() {
           {/* Индикатор обновлений избранного. */}
           {view === "favorites" && favoriteUpdates > 0 && (
             <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-accent ring-2 ring-surface" />
+          )}
+          {/* Индикатор состояния загрузок (цвет зависит от статуса). */}
+          {view === "downloads" && downloadsDot && (
+            <span
+              className={clsx(
+                "absolute top-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-surface",
+                downloadsDot,
+              )}
+            />
           )}
           {/* Всплывающая подсказка с названием раздела. */}
           <span className="pointer-events-none absolute left-full z-10 ml-2 rounded-md border border-border bg-surface-3 px-2 py-1 text-xs whitespace-nowrap text-text opacity-0 shadow-lg transition-opacity group-hover:opacity-100">

@@ -31,6 +31,9 @@ export function TopicView({ topicId }: { topicId: number }) {
     queryKey: ["topic", topicId],
     queryFn: () => api.topic(topicId),
     retry: false,
+    // Кэшируем страницу раздачи на сессию: возврат по «Назад» не перезагружает.
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 
   const { data: favorite } = useQuery({

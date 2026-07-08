@@ -1,6 +1,7 @@
 // Каркас приложения: боковая навигация, активная страница, статус-бар, тосты.
 
 import { DownloadModal } from "@/components/DownloadModal";
+import { Lightbox } from "@/components/Lightbox";
 import { Sidebar } from "@/components/Sidebar";
 import { StatusBar } from "@/components/StatusBar";
 import { Toaster } from "@/components/Toaster";
@@ -45,6 +46,7 @@ export default function App() {
       </div>
       <Toaster />
       <DownloadModal />
+      <Lightbox />
     </div>
   );
 }

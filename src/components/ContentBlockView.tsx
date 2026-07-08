@@ -5,6 +5,7 @@ import { ChevronRight, ImageOff } from "lucide-react";
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import { openLightbox } from "@/components/Lightbox";
 import { useAppStore } from "@/store";
 import type { ContentBlock, Inline } from "@/lib/types";
 
@@ -103,7 +104,7 @@ function BlockImage({ src }: { src: string }) {
       src={src}
       loading="lazy"
       onError={() => setFailed(true)}
-      onClick={() => void openUrl(src)}
+      onClick={() => openLightbox(src)}
       // self-start не даёт flex-колонке растягивать картинку на всю ширину,
       // а h-auto/w-auto/max-* не увеличивают маленькие изображения (флаги,
       // спектрограммы), сохраняя их исходный размер как на rutracker.
