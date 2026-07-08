@@ -110,15 +110,18 @@ impl Engine {
     }
 
     /// Разбирает источник без запуска скачивания и возвращает список файлов.
+    ///
+    /// Для magnet без метаданных librqbit сначала докачивает metainfo из сети —
+    /// ограничиваем ожидание таймаутом, чтобы UI не завис.
     pub async fn preview(&self, source: Source) -> Result<TorrentPreview> {
         let opts = AddTorrentOptions {
             list_only: true,
             ..Default::default()
         };
-        let response = self
-            .session
-            .add_torrent(Self::build_add(&source), Some(opts))
+        let fut = self.session.add_torrent(Self::build_add(&source), Some(opts));
+        let response = tokio::time::timeout(std::time::Duration::from_secs(90), fut)
             .await
+            .map_err(|_| Error::Backend("превышено время получения списка файлов".into()))?
             .map_err(|e| Error::Backend(e.to_string()))?;
 
         let AddTorrentResponse::ListOnly(list) = response else {

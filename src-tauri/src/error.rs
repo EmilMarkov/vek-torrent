@@ -7,7 +7,7 @@ use vek_core::Error as CoreError;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandError {
-    /// Машиночитаемый код (`captcha_required`, `qbit_unavailable`, …).
+    /// Машиночитаемый код (`captcha_required`, `engine_error`, …).
     pub code: String,
     /// Человекочитаемое сообщение.
     pub message: String,

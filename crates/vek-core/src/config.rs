@@ -88,7 +88,7 @@ impl Default for ApiConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DownloadsConfig {
-    /// Каталог сохранения по умолчанию; пусто — настройка qBittorrent.
+    /// Каталог сохранения по умолчанию; пусто — папка приложения.
     pub default_save_path: String,
     /// Добавлять новые торренты на паузе.
     pub add_stopped: bool,

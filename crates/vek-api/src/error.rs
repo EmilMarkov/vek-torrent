@@ -66,8 +66,8 @@ impl From<CoreError> for ApiError {
             CoreError::Rutracker(rutracker::Error::BadCredentials) => {
                 (StatusCode::UNAUTHORIZED, "bad_credentials")
             }
-            CoreError::QbitUnavailable(_) | CoreError::QbitBinaryNotFound => {
-                (StatusCode::SERVICE_UNAVAILABLE, "qbit_unavailable")
+            CoreError::Engine(_) | CoreError::EngineUnavailable(_) => {
+                (StatusCode::SERVICE_UNAVAILABLE, "engine_unavailable")
             }
             CoreError::Config(_) => (StatusCode::BAD_REQUEST, "invalid_config"),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),

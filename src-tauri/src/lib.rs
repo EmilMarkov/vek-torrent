@@ -71,7 +71,7 @@ pub fn run() {
         .expect("не удалось собрать приложение VEK Torrent")
         .run(|app_handle, event| {
             if let RunEvent::Exit = event {
-                // Корректно останавливаем sidecar и API при выходе.
+                // Корректно останавливаем движок и API при выходе.
                 let state = app_handle.state::<AppState>();
                 tauri::async_runtime::block_on(async {
                     state.stop_api().await;
@@ -81,7 +81,7 @@ pub fn run() {
         });
 }
 
-/// Запускает фоновые задачи: автозапуск qBittorrent/API и опрос загрузок.
+/// Запускает фоновые задачи: автозапуск движка/API и опрос загрузок.
 fn spawn_background_tasks(app: tauri::AppHandle, core: vek_core::SharedCore) {
     // Автозапуск подсистем согласно конфигурации.
     {

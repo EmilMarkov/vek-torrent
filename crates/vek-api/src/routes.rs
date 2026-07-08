@@ -149,7 +149,7 @@ pub async fn topic_files(
     post, path = "/api/v1/downloads/topic/{id}", tag = "downloads",
     params(("id" = u64, Path, description = "Идентификатор раздачи")),
     request_body = AddOptions,
-    responses((status = 200, description = "Добавлено (info-hash)"), (status = 503, body = crate::ErrorBody))
+    responses((status = 200, description = "Info-hash", body = String), (status = 503, body = crate::ErrorBody))
 )]
 pub async fn add_topic(
     State(state): State<ApiState>,
@@ -163,7 +163,7 @@ pub async fn add_topic(
 #[utoipa::path(
     post, path = "/api/v1/downloads/url", tag = "downloads",
     request_body = AddUrlBody,
-    responses((status = 200, description = "Добавлено (info-hash)"), (status = 503, body = crate::ErrorBody))
+    responses((status = 200, description = "Info-hash", body = String), (status = 503, body = crate::ErrorBody))
 )]
 pub async fn add_url(
     State(state): State<ApiState>,
