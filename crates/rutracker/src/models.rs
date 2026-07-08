@@ -264,6 +264,11 @@ pub enum Inline {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         topic_id: Option<u64>,
     },
+    /// Изображение в потоке текста (флаг, иконка, скриншот) — сохраняет исходный
+    /// размер и не разрывает строку.
+    Image {
+        src: String,
+    },
     Break,
 }
 

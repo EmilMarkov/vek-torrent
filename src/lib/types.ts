@@ -72,6 +72,7 @@ export type Inline =
       color?: string | null;
     }
   | { type: "link"; href: string; text: string; topic_id?: number | null }
+  | { type: "image"; src: string }
   | { type: "break" };
 
 export type ContentBlock =

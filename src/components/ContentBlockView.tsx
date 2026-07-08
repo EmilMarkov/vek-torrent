@@ -58,6 +58,8 @@ function BlockView({ block }: { block: ContentBlock }) {
 function InlineView({ inline }: { inline: Inline }) {
   if (inline.type === "break") return <br />;
 
+  if (inline.type === "image") return <InlineImage src={inline.src} />;
+
   if (inline.type === "link") {
     const openTopic = useAppStore.getState().openTopic;
     const onClick = () => {
@@ -90,12 +92,16 @@ function InlineView({ inline }: { inline: Inline }) {
 }
 
 function BlockImage({ src }: { src: string }) {
+  return <InlineImage src={src} />;
+}
+
+/** Строчное изображение: исходный размер, не разрывает строку, клик — лайтбокс. */
+function InlineImage({ src }: { src: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <span className="inline-flex w-fit items-center gap-2 self-start rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-faint">
-        <ImageOff className="h-4 w-4" />
-        Изображение недоступно
+      <span className="inline-flex items-center gap-1 align-middle text-xs text-faint">
+        <ImageOff className="h-3.5 w-3.5" />
       </span>
     );
   }
@@ -105,10 +111,9 @@ function BlockImage({ src }: { src: string }) {
       loading="lazy"
       onError={() => setFailed(true)}
       onClick={() => openLightbox(src)}
-      // self-start не даёт flex-колонке растягивать картинку на всю ширину,
-      // а h-auto/w-auto/max-* не увеличивают маленькие изображения (флаги,
-      // спектрограммы), сохраняя их исходный размер как на rutracker.
-      className="h-auto max-h-[70vh] w-auto max-w-full cursor-zoom-in self-start rounded-lg border border-border object-contain"
+      // inline-block + align-middle: картинка течёт вместе с текстом; h-auto/
+      // max-* не увеличивают маленькие изображения (флаги, спектрограммы).
+      className="my-1 inline-block h-auto max-h-[70vh] max-w-full cursor-zoom-in rounded-md border border-border object-contain align-middle"
       alt=""
     />
   );

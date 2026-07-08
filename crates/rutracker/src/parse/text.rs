@@ -160,7 +160,9 @@ fn handle_element(el: ElementRef<'_>, marks: &Marks, builder: &mut Builder, base
 
         "var" if has_class(el, "postImg") => {
             if let Some(src) = el.value().attr("title") {
-                builder.push_block(ContentBlock::Image {
+                // Изображения — строчные: они текут вместе с текстом и не
+                // разрывают строку (маленькие остаются маленькими).
+                builder.push_inline(Inline::Image {
                     src: resolve_href(src, base),
                 });
             }
@@ -171,7 +173,7 @@ fn handle_element(el: ElementRef<'_>, marks: &Marks, builder: &mut Builder, base
                 return;
             }
             if let Some(src) = el.value().attr("src") {
-                builder.push_block(ContentBlock::Image {
+                builder.push_inline(Inline::Image {
                     src: resolve_href(src, base),
                 });
             }
@@ -525,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn spoiler_with_image_and_title() {
+    fn spoiler_with_inline_image_and_title() {
         let blocks = parse_blocks(
             r#"<div class="sp-wrap"><div class="sp-head folded"><span>Скриншоты</span></div>
                <div class="sp-body"><var class="postImg" title="https://i.example/1.png">картинка</var></div></div>"#,
@@ -535,12 +537,14 @@ mod tests {
             panic!("ожидался спойлер");
         };
         assert_eq!(title, "Скриншоты");
-        assert_eq!(
-            blocks[0],
-            ContentBlock::Image {
-                src: "https://i.example/1.png".to_owned()
-            }
-        );
+        // Изображение теперь строчное — внутри параграфа.
+        let ContentBlock::Paragraph { inlines } = &blocks[0] else {
+            panic!("ожидался параграф с изображением");
+        };
+        assert!(inlines.iter().any(|i| matches!(
+            i,
+            Inline::Image { src } if src == "https://i.example/1.png"
+        )));
     }
 
     #[test]

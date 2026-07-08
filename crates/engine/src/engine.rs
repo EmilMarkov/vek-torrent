@@ -1,11 +1,6 @@
 //! Обёртка над librqbit: запуск сессии, добавление, список, управление.
 
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-    time::Instant,
-};
+use std::{path::PathBuf, sync::Arc};
 
 use librqbit::{
     AddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrent, Session, SessionOptions,
@@ -31,25 +26,11 @@ pub struct EngineConfig {
     pub listen_port: Option<u16>,
 }
 
-/// Образец счётчиков для расчёта скорости между опросами.
-#[derive(Clone, Copy)]
-struct SpeedSample {
-    downloaded: u64,
-    uploaded: u64,
-    at: Instant,
-    /// Последние рассчитанные скорости — возвращаются при частых повторных
-    /// вызовах (dt мал), чтобы значения не «моргали» в 0.
-    dl_speed: u64,
-    up_speed: u64,
-}
-
 /// Встроенный торрент-движок.
 #[derive(Clone)]
 pub struct Engine {
     session: Arc<Session>,
     download_dir: PathBuf,
-    /// Кэш счётчиков для вычисления скоростей (дельта байт / время).
-    speeds: Arc<Mutex<HashMap<String, SpeedSample>>>,
 }
 
 impl Engine {
@@ -74,7 +55,6 @@ impl Engine {
         Ok(Self {
             session,
             download_dir: config.download_dir,
-            speeds: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -196,14 +176,13 @@ impl Engine {
     /// Удаляет торрент (опционально с файлами).
     pub async fn remove(&self, hash: &str, delete_files: bool) -> Result<()> {
         let (id, _) = self.find(hash).ok_or(Error::NotFound)?;
-        self.speeds.lock().expect("speeds lock").remove(hash);
         self.session
             .delete(TorrentIdOrHash::Id(id), delete_files)
             .await
             .map_err(|e| Error::Backend(e.to_string()))
     }
 
-    /// Снимок всех торрентов с рассчитанными скоростями.
+    /// Снимок всех торрентов.
     pub fn torrents(&self) -> Vec<EngineTorrent> {
         let handles: Vec<Handle> = self.session.with_torrents(|torrents| {
             let mut handles = Vec::new();
@@ -212,108 +191,76 @@ impl Engine {
             }
             handles
         });
-
-        let now = Instant::now();
-        let mut cache = self.speeds.lock().expect("speeds lock");
-
-        handles
-            .iter()
-            .map(|handle| self.snapshot(handle, now, &mut cache))
-            .collect()
+        handles.iter().map(|handle| snapshot(handle, &self.download_dir)).collect()
     }
-
-    fn snapshot(
-        &self,
-        handle: &Handle,
-        now: Instant,
-        cache: &mut HashMap<String, SpeedSample>,
-    ) -> EngineTorrent {
-        let hash = handle.info_hash().as_string();
-        let stats = handle.stats();
-
-        let downloaded = stats.progress_bytes;
-        let uploaded = stats.uploaded_bytes;
-        let total = stats.total_bytes;
-
-        // Скорости считаем как дельту счётчиков между опросами — не зависит от
-        // единиц измерения внутренней оценки librqbit. При частых повторных
-        // вызовах (dt мал) возвращаем прошлые значения и не трогаем образец.
-        let (dl_speed, up_speed) = match cache.get(&hash) {
-            Some(prev) => {
-                let dt = now.duration_since(prev.at).as_secs_f64();
-                if dt >= 0.2 {
-                    let dl = rate(downloaded, prev.downloaded, dt);
-                    let up = rate(uploaded, prev.uploaded, dt);
-                    cache.insert(
-                        hash.clone(),
-                        SpeedSample { downloaded, uploaded, at: now, dl_speed: dl, up_speed: up },
-                    );
-                    (dl, up)
-                } else {
-                    (prev.dl_speed, prev.up_speed)
-                }
-            }
-            None => {
-                cache.insert(
-                    hash.clone(),
-                    SpeedSample { downloaded, uploaded, at: now, dl_speed: 0, up_speed: 0 },
-                );
-                (0, 0)
-            }
-        };
-
-        let peers = stats
-            .live
-            .as_ref()
-            .map(|l| l.snapshot.peer_stats.live as u32)
-            .unwrap_or(0);
-
-        let state = match stats.state {
-            TorrentStatsState::Paused => TorrentState::Paused,
-            TorrentStatsState::Error => TorrentState::Error,
-            TorrentStatsState::Initializing => TorrentState::Checking,
-            TorrentStatsState::Live if stats.finished => TorrentState::Seeding,
-            TorrentStatsState::Live => TorrentState::Downloading,
-        };
-
-        let progress = if total > 0 {
-            (downloaded as f64 / total as f64).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-
-        let eta_secs = if !stats.finished && dl_speed > 0 && total > downloaded {
-            Some((total - downloaded) / dl_speed)
-        } else {
-            None
-        };
-
-        EngineTorrent {
-            name: handle.name().unwrap_or_else(|| hash.clone()),
-            hash,
-            size: total,
-            progress,
-            downloaded,
-            uploaded,
-            dl_speed,
-            up_speed,
-            eta_secs,
-            state,
-            peers,
-            finished: stats.finished,
-            save_path: self.download_dir.display().to_string(),
-            error: stats.error,
-        }
-    }
-
 }
 
-/// Скорость (байт/с) как дельта счётчиков за время dt.
-fn rate(current: u64, previous: u64, dt: f64) -> u64 {
-    if current <= previous || dt <= 0.0 {
-        return 0;
+/// Скорость (байт/с) из сглаженной оценки librqbit (в MiB/с).
+fn to_bps(mibps: f64) -> u64 {
+    (mibps * 1024.0 * 1024.0).max(0.0) as u64
+}
+
+/// Строит снимок состояния торрента из данных librqbit.
+fn snapshot(handle: &Handle, download_dir: &std::path::Path) -> EngineTorrent {
+    let hash = handle.info_hash().as_string();
+    let stats = handle.stats();
+
+    let downloaded = stats.progress_bytes;
+    let uploaded = stats.uploaded_bytes;
+    let total = stats.total_bytes;
+
+    // Скорости берём из встроенной сглаженной оценки librqbit — она не «моргает»
+    // в 0 между завершением отдельных кусков (в отличие от дельты по кускам).
+    let (dl_speed, up_speed) = match stats.live.as_ref() {
+        Some(live) => (
+            to_bps(live.download_speed.mbps),
+            to_bps(live.upload_speed.mbps),
+        ),
+        None => (0, 0),
+    };
+
+    let peers = stats
+        .live
+        .as_ref()
+        .map(|l| l.snapshot.peer_stats.live as u32)
+        .unwrap_or(0);
+
+    let state = match stats.state {
+        TorrentStatsState::Paused => TorrentState::Paused,
+        TorrentStatsState::Error => TorrentState::Error,
+        TorrentStatsState::Initializing => TorrentState::Checking,
+        TorrentStatsState::Live if stats.finished => TorrentState::Seeding,
+        TorrentStatsState::Live => TorrentState::Downloading,
+    };
+
+    let progress = if total > 0 {
+        (downloaded as f64 / total as f64).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    let eta_secs = if !stats.finished && dl_speed > 0 && total > downloaded {
+        Some((total - downloaded) / dl_speed)
+    } else {
+        None
+    };
+
+    EngineTorrent {
+        name: handle.name().unwrap_or_else(|| hash.clone()),
+        hash,
+        size: total,
+        progress,
+        downloaded,
+        uploaded,
+        dl_speed,
+        up_speed,
+        eta_secs,
+        state,
+        peers,
+        finished: stats.finished,
+        save_path: download_dir.display().to_string(),
+        error: stats.error,
     }
-    ((current - previous) as f64 / dt) as u64
 }
 
 #[cfg(test)]
@@ -321,11 +268,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rate_computes_delta() {
-        assert_eq!(rate(2000, 1000, 1.0), 1000);
-        assert_eq!(rate(1000, 1000, 1.0), 0);
-        assert_eq!(rate(500, 1000, 1.0), 0);
-        assert_eq!(rate(3000, 1000, 2.0), 1000);
+    fn mibps_to_bytes_per_second() {
+        assert_eq!(to_bps(1.0), 1024 * 1024);
+        assert_eq!(to_bps(0.0), 0);
+        assert_eq!(to_bps(-1.0), 0);
     }
 
     #[test]
