@@ -129,6 +129,51 @@ pub struct AddOptions {
     pub only_files: Option<Vec<usize>>,
 }
 
+/// Избранная раздача (проекция для UI/API).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FavoriteItem {
+    pub topic_id: u64,
+    pub title: String,
+    pub added_at: i64,
+    pub last_checked: i64,
+    /// Обнаружено обновление раздачи с последнего просмотра.
+    pub has_update: bool,
+}
+
+impl From<crate::library::FavoriteRecord> for FavoriteItem {
+    fn from(r: crate::library::FavoriteRecord) -> Self {
+        Self {
+            topic_id: r.topic_id,
+            title: r.title,
+            added_at: r.added_at,
+            last_checked: r.last_checked,
+            has_update: r.has_update,
+        }
+    }
+}
+
+/// Запись истории скачиваний (проекция для UI/API).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryItem {
+    pub topic_id: u64,
+    pub title: String,
+    pub hash: String,
+    pub added_at: i64,
+}
+
+impl From<crate::library::HistoryRecord> for HistoryItem {
+    fn from(r: crate::library::HistoryRecord) -> Self {
+        Self {
+            topic_id: r.topic_id,
+            title: r.title,
+            hash: r.hash,
+            added_at: r.added_at,
+        }
+    }
+}
+
 /// Статус подсистем приложения.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]

@@ -155,6 +155,21 @@ export interface AppStatus {
   activeDownloads: number;
 }
 
+export interface FavoriteItem {
+  topicId: number;
+  title: string;
+  addedAt: number;
+  lastChecked: number;
+  hasUpdate: boolean;
+}
+
+export interface HistoryItem {
+  topicId: number;
+  title: string;
+  hash: string;
+  addedAt: number;
+}
+
 export interface SessionInfo {
   logged_in: boolean;
   username: string | null;

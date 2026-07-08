@@ -18,7 +18,11 @@ use rutracker::models::{
 use crate::{
     config::{self, AppConfig},
     error::{Error, Result},
-    models::{AddOptions, AppStatus, DownloadItem, TorrentFilesPreview, TransferSummary},
+    library::{self, FavoriteRecord, HistoryRecord, Library, now_unix},
+    models::{
+        AddOptions, AppStatus, DownloadItem, FavoriteItem, HistoryItem, TorrentFilesPreview,
+        TransferSummary,
+    },
 };
 
 /// Общий доступ к ядру приложения.
@@ -30,6 +34,7 @@ pub struct AppCore {
     config: RwLock<AppConfig>,
     rutracker: RwLock<rutracker::Client>,
     engine: tokio::sync::Mutex<Option<Engine>>,
+    library: RwLock<Library>,
     api_running: AtomicBool,
 }
 
@@ -47,14 +52,24 @@ impl AppCore {
         }
 
         let rutracker = build_rutracker_client(&config, &app_dir)?;
+        let library = Library::load(&library::library_file(&app_dir));
 
         Ok(Arc::new(Self {
             app_dir,
             config: RwLock::new(config),
             rutracker: RwLock::new(rutracker),
             engine: tokio::sync::Mutex::new(None),
+            library: RwLock::new(library),
             api_running: AtomicBool::new(false),
         }))
+    }
+
+    fn save_library(&self) {
+        let path = library::library_file(&self.app_dir);
+        let snapshot = self.library.read().expect("library lock").clone();
+        if let Err(e) = snapshot.save(&path) {
+            tracing::warn!("не удалось сохранить библиотеку: {e}");
+        }
     }
 
     /// Каталог данных приложения.
@@ -318,7 +333,12 @@ impl AppCore {
             .with_auth_retry(|client| async move { client.topic(topic_id).await })
             .await?;
         let source = self.pick_source(topic_id, &topic, options.prefer_magnet).await?;
-        engine.add(source, self.add_params(&config, &options)).await.map_err(Error::from)
+        let hash = engine
+            .add(source, self.add_params(&config, &options))
+            .await
+            .map_err(Error::from)?;
+        self.record_history(topic_id, &topic.title, &hash);
+        Ok(hash)
     }
 
     /// Добавляет торрент по magnet- или http-ссылке напрямую.
@@ -358,6 +378,125 @@ impl AppCore {
         Ok(())
     }
 
+    // ── Избранное и история ─────────────────────────────────────────────
+
+    /// Список избранных раздач.
+    pub fn favorites(&self) -> Vec<FavoriteItem> {
+        self.library
+            .read()
+            .expect("library lock")
+            .favorites
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect()
+    }
+
+    /// В избранном ли раздача.
+    pub fn is_favorite(&self, topic_id: u64) -> bool {
+        self.library.read().expect("library lock").is_favorite(topic_id)
+    }
+
+    /// Добавляет раздачу в избранное (запоминает сигнатуру для детекта обновлений).
+    pub async fn add_favorite(&self, topic_id: u64) -> Result<()> {
+        let topic = self
+            .with_auth_retry(|client| async move { client.topic(topic_id).await })
+            .await?;
+        let now = now_unix();
+        let record = FavoriteRecord {
+            topic_id,
+            title: topic.title.clone(),
+            added_at: now,
+            last_checked: now,
+            signature: topic_signature(&topic),
+            has_update: false,
+        };
+        self.library.write().expect("library lock").add_favorite(record);
+        self.save_library();
+        Ok(())
+    }
+
+    /// Убирает раздачу из избранного.
+    pub fn remove_favorite(&self, topic_id: u64) {
+        self.library.write().expect("library lock").remove_favorite(topic_id);
+        self.save_library();
+    }
+
+    /// Сбрасывает отметку об обновлении избранной раздачи.
+    pub fn clear_favorite_update(&self, topic_id: u64) {
+        self.library.write().expect("library lock").clear_update(topic_id);
+        self.save_library();
+    }
+
+    /// Проверяет обновления избранных раздач, перезапрашивая их страницы.
+    ///
+    /// Ошибки отдельных раздач не прерывают проверку (best-effort).
+    pub async fn check_favorites(&self) -> Result<Vec<FavoriteItem>> {
+        let ids: Vec<u64> = self
+            .library
+            .read()
+            .expect("library lock")
+            .favorites
+            .iter()
+            .map(|f| f.topic_id)
+            .collect();
+
+        for id in ids {
+            let Ok(topic) = self
+                .with_auth_retry(|client| async move { client.topic(id).await })
+                .await
+            else {
+                continue;
+            };
+            let signature = topic_signature(&topic);
+            let mut lib = self.library.write().expect("library lock");
+            if let Some(fav) = lib.favorites.iter_mut().find(|f| f.topic_id == id) {
+                fav.last_checked = now_unix();
+                if fav.signature != signature {
+                    fav.signature = signature;
+                    fav.has_update = true;
+                }
+            }
+        }
+
+        self.save_library();
+        Ok(self.favorites())
+    }
+
+    /// История скачиваний.
+    pub fn history(&self) -> Vec<HistoryItem> {
+        self.library
+            .read()
+            .expect("library lock")
+            .history
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect()
+    }
+
+    /// Удаляет запись истории.
+    pub fn remove_history(&self, topic_id: u64) {
+        self.library.write().expect("library lock").remove_history(topic_id);
+        self.save_library();
+    }
+
+    /// Очищает историю скачиваний.
+    pub fn clear_history(&self) {
+        self.library.write().expect("library lock").clear_history();
+        self.save_library();
+    }
+
+    fn record_history(&self, topic_id: u64, title: &str, hash: &str) {
+        self.library.write().expect("library lock").add_history(HistoryRecord {
+            topic_id,
+            title: title.to_owned(),
+            hash: hash.to_owned(),
+            added_at: now_unix(),
+        });
+        self.save_library();
+    }
+
     // ── Статус ──────────────────────────────────────────────────────────
 
     /// Отмечает состояние внешнего API (устанавливается слоем приложения).
@@ -388,6 +527,16 @@ impl AppCore {
             active_downloads,
         }
     }
+}
+
+/// Сигнатура состояния раздачи для детекта обновлений: дата регистрации +
+/// размер. При переоформлении раздачи на трекере они меняются.
+fn topic_signature(topic: &TopicPage) -> String {
+    format!(
+        "{}|{}",
+        topic.stats.registered.clone().unwrap_or_default(),
+        topic.stats.size_bytes.unwrap_or(0)
+    )
 }
 
 /// Сводит список торрентов в общую статистику передачи.

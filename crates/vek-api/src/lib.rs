@@ -64,6 +64,11 @@ pub fn build_app(state: ApiState) -> axum::Router {
         .routes(routes!(routes::pause))
         .routes(routes!(routes::resume))
         .routes(routes!(routes::remove))
+        .routes(routes!(routes::favorites))
+        .routes(routes!(routes::add_favorite))
+        .routes(routes!(routes::remove_favorite))
+        .routes(routes!(routes::check_favorites))
+        .routes(routes!(routes::history))
         .with_state(state.clone())
         .split_for_parts();
 

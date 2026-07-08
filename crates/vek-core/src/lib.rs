@@ -9,6 +9,7 @@
 pub mod app;
 pub mod config;
 pub mod error;
+pub mod library;
 pub mod models;
 
 pub use app::{AppCore, SharedCore};

@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use vek_core::models::{
-    AddOptions, AppStatus, DownloadItem, TorrentFilesPreview, TransferSummary,
+    AddOptions, AppStatus, DownloadItem, FavoriteItem, HistoryItem, TorrentFilesPreview,
+    TransferSummary,
 };
 use vek_core::rutracker_models::{ForumGroup, SearchPage, SearchRequest, TopicPage};
 
@@ -170,6 +171,50 @@ pub async fn add_url(
     Json(body): Json<AddUrlBody>,
 ) -> Result<Json<String>, ApiError> {
     Ok(Json(state.core.add_url(body.url, body.options).await?))
+}
+
+/// Список избранных раздач.
+#[utoipa::path(get, path = "/api/v1/favorites", tag = "downloads",
+    responses((status = 200, body = Vec<FavoriteItem>)))]
+pub async fn favorites(State(state): State<ApiState>) -> Json<Vec<FavoriteItem>> {
+    Json(state.core.favorites())
+}
+
+/// Добавить раздачу в избранное.
+#[utoipa::path(post, path = "/api/v1/favorites/{id}", tag = "downloads",
+    params(("id" = u64, Path, description = "Идентификатор раздачи")),
+    responses((status = 204, description = "Добавлено"), (status = 401, body = crate::ErrorBody)))]
+pub async fn add_favorite(
+    State(state): State<ApiState>,
+    Path(id): Path<u64>,
+) -> Result<StatusCode, ApiError> {
+    state.core.add_favorite(id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Убрать раздачу из избранного.
+#[utoipa::path(delete, path = "/api/v1/favorites/{id}", tag = "downloads",
+    params(("id" = u64, Path, description = "Идентификатор раздачи")),
+    responses((status = 204, description = "Удалено")))]
+pub async fn remove_favorite(State(state): State<ApiState>, Path(id): Path<u64>) -> StatusCode {
+    state.core.remove_favorite(id);
+    StatusCode::NO_CONTENT
+}
+
+/// Проверить обновления избранных раздач.
+#[utoipa::path(post, path = "/api/v1/favorites/check", tag = "downloads",
+    responses((status = 200, body = Vec<FavoriteItem>)))]
+pub async fn check_favorites(
+    State(state): State<ApiState>,
+) -> Result<Json<Vec<FavoriteItem>>, ApiError> {
+    Ok(Json(state.core.check_favorites().await?))
+}
+
+/// История скачиваний.
+#[utoipa::path(get, path = "/api/v1/history", tag = "downloads",
+    responses((status = 200, body = Vec<HistoryItem>)))]
+pub async fn history(State(state): State<ApiState>) -> Json<Vec<HistoryItem>> {
+    Json(state.core.history())
 }
 
 /// Поставить загрузки на паузу.

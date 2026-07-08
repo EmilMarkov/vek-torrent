@@ -6,7 +6,8 @@ use tauri::State;
 
 use vek_core::AppConfig;
 use vek_core::models::{
-    AddOptions, AppStatus, DownloadItem, TorrentFilesPreview, TransferSummary,
+    AddOptions, AppStatus, DownloadItem, FavoriteItem, HistoryItem, TorrentFilesPreview,
+    TransferSummary,
 };
 use vek_core::rutracker_models::{
     CaptchaAnswer, CaptchaChallenge, ForumGroup, SearchPage, SearchRequest, SessionInfo, TopicPage,
@@ -162,6 +163,54 @@ pub async fn remove(
 ) -> CommandResult<()> {
     state.core.remove(hashes, delete_files).await?;
     Ok(())
+}
+
+// ── Избранное и история ──────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn favorites(state: State<'_, AppState>) -> Vec<FavoriteItem> {
+    state.core.favorites()
+}
+
+#[tauri::command]
+pub fn is_favorite(state: State<'_, AppState>, topic_id: u64) -> bool {
+    state.core.is_favorite(topic_id)
+}
+
+#[tauri::command]
+pub async fn add_favorite(state: State<'_, AppState>, topic_id: u64) -> CommandResult<()> {
+    state.core.add_favorite(topic_id).await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_favorite(state: State<'_, AppState>, topic_id: u64) {
+    state.core.remove_favorite(topic_id);
+}
+
+#[tauri::command]
+pub fn clear_favorite_update(state: State<'_, AppState>, topic_id: u64) {
+    state.core.clear_favorite_update(topic_id);
+}
+
+#[tauri::command]
+pub async fn check_favorites(state: State<'_, AppState>) -> CommandResult<Vec<FavoriteItem>> {
+    Ok(state.core.check_favorites().await?)
+}
+
+#[tauri::command]
+pub fn history(state: State<'_, AppState>) -> Vec<HistoryItem> {
+    state.core.history()
+}
+
+#[tauri::command]
+pub fn remove_history(state: State<'_, AppState>, topic_id: u64) {
+    state.core.remove_history(topic_id);
+}
+
+#[tauri::command]
+pub fn clear_history(state: State<'_, AppState>) {
+    state.core.clear_history();
 }
 
 // ── Система ──────────────────────────────────────────────────────────────

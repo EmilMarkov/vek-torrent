@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { StatusBar } from "@/components/StatusBar";
 import { Toaster } from "@/components/Toaster";
 import { useDownloadsListener } from "@/hooks/useDownloads";
+import { useFavoritesListener } from "@/hooks/useLibrary";
 import { DownloadsPage } from "@/pages/DownloadsPage";
 import { FavoritesPage } from "@/pages/FavoritesPage";
 import { HistoryPage } from "@/pages/HistoryPage";
@@ -18,6 +19,8 @@ export default function App() {
 
   // Единый слушатель push-событий загрузок (скорости в статус-баре и т.д.).
   useDownloadsListener();
+  // Слушатель фоновых проверок обновлений избранного.
+  useFavoritesListener();
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-bg text-text">

@@ -1,7 +1,16 @@
 // Страница раздачи: заголовок, статистика, действия и блочный рендер содержимого.
 
-import { useQuery } from "@tanstack/react-query";
-import { ArrowDownToLine, ArrowLeft, ArrowUp, Magnet, TriangleAlert, Users } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowDownToLine,
+  ArrowLeft,
+  ArrowUp,
+  Heart,
+  Magnet,
+  TriangleAlert,
+  Users,
+} from "lucide-react";
+import { clsx } from "clsx";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { ContentBlocks } from "@/components/ContentBlockView";
@@ -16,12 +25,30 @@ import { useAppStore } from "@/store";
 export function TopicView({ topicId }: { topicId: number }) {
   const back = useAppStore((s) => s.back);
   const { add, adding } = useAddDownload();
+  const queryClient = useQueryClient();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["topic", topicId],
     queryFn: () => api.topic(topicId),
     retry: false,
   });
+
+  const { data: favorite } = useQuery({
+    queryKey: ["is-favorite", topicId],
+    queryFn: () => api.isFavorite(topicId),
+  });
+
+  const toggleFavorite = async () => {
+    try {
+      if (favorite) await api.removeFavorite(topicId);
+      else await api.addFavorite(topicId);
+      await queryClient.invalidateQueries({ queryKey: ["is-favorite", topicId] });
+      await queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      toast.success(favorite ? "Убрано из избранного" : "Добавлено в избранное");
+    } catch {
+      toast.error("Не удалось изменить избранное");
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -90,6 +117,15 @@ export function TopicView({ topicId }: { topicId: number }) {
                   Открыть внешне
                 </Button>
               )}
+              <Button
+                variant="ghost"
+                onClick={toggleFavorite}
+                title={favorite ? "Убрать из избранного" : "В избранное"}
+                className="ml-auto"
+              >
+                <Heart className={clsx("h-4 w-4", favorite && "fill-danger text-danger")} />
+                {favorite ? "В избранном" : "В избранное"}
+              </Button>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-4 rounded-lg border border-border bg-surface-2/50 px-4 py-3 text-sm">

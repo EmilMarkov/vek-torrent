@@ -25,6 +25,9 @@ struct DownloadsUpdate {
 /// Интервал фонового опроса загрузок.
 const POLL_INTERVAL: Duration = Duration::from_millis(1500);
 
+/// Интервал автоматической проверки обновлений избранного.
+const FAVORITES_CHECK_INTERVAL: Duration = Duration::from_secs(3 * 60 * 60);
+
 /// Запуск приложения Tauri.
 pub fn run() {
     init_tracing();
@@ -62,6 +65,15 @@ pub fn run() {
             commands::pause,
             commands::resume,
             commands::remove,
+            commands::favorites,
+            commands::is_favorite,
+            commands::add_favorite,
+            commands::remove_favorite,
+            commands::clear_favorite_update,
+            commands::check_favorites,
+            commands::history,
+            commands::remove_history,
+            commands::clear_history,
             commands::status,
             commands::start_engine,
             commands::stop_engine,
@@ -98,6 +110,24 @@ fn spawn_background_tasks(app: tauri::AppHandle, core: vek_core::SharedCore) {
                 let state = app.state::<AppState>();
                 if let Err(e) = state.restart_api().await {
                     tracing::warn!("не удалось запустить API при старте: {e}");
+                }
+            }
+        });
+    }
+
+    // Периодическая проверка обновлений избранных раздач.
+    {
+        let app = app.clone();
+        let core = core.clone();
+        tauri::async_runtime::spawn(async move {
+            // Первая проверка — через минуту после старта, далее по интервалу.
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            let mut interval = tokio::time::interval(FAVORITES_CHECK_INTERVAL);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                if let Ok(favorites) = core.check_favorites().await {
+                    let _ = app.emit("favorites:updated", favorites);
                 }
             }
         });
