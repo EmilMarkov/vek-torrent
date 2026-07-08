@@ -1,6 +1,6 @@
 [package]
 name = "vek-core"
-description = "Доменный слой VEK Torrent: конфигурация, сервисы, sidecar qBittorrent"
+description = "Доменный слой VEK Torrent: конфигурация, сервисы, встроенный движок"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
