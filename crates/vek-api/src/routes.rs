@@ -8,8 +8,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use vek_core::models::{AddOptions, AppStatus, DownloadItem, TransferSummary};
-use vek_core::qbit_models::Category;
+use vek_core::models::{
+    AddOptions, AppStatus, DownloadItem, TorrentFilesPreview, TransferSummary,
+};
 use vek_core::rutracker_models::{ForumGroup, SearchPage, SearchRequest, TopicPage};
 
 use crate::{ApiState, error::ApiError};
@@ -130,15 +131,17 @@ pub async fn transfer(
     Ok(Json(state.core.transfer().await?))
 }
 
-/// Категории qBittorrent.
+/// Список файлов раздачи (для выбора перед скачиванием).
 #[utoipa::path(
-    get, path = "/api/v1/qbit/categories", tag = "downloads",
-    responses((status = 200, body = Vec<Category>), (status = 503, body = crate::ErrorBody))
+    get, path = "/api/v1/topics/{id}/files", tag = "downloads",
+    params(("id" = u64, Path, description = "Идентификатор раздачи")),
+    responses((status = 200, body = TorrentFilesPreview), (status = 503, body = crate::ErrorBody))
 )]
-pub async fn qbit_categories(
+pub async fn topic_files(
     State(state): State<ApiState>,
-) -> Result<Json<Vec<Category>>, ApiError> {
-    Ok(Json(state.core.qbit_categories().await?))
+    Path(id): Path<u64>,
+) -> Result<Json<TorrentFilesPreview>, ApiError> {
+    Ok(Json(state.core.preview_topic(id).await?))
 }
 
 /// Добавить раздачу в загрузки по идентификатору темы.
@@ -146,29 +149,27 @@ pub async fn qbit_categories(
     post, path = "/api/v1/downloads/topic/{id}", tag = "downloads",
     params(("id" = u64, Path, description = "Идентификатор раздачи")),
     request_body = AddOptions,
-    responses((status = 204, description = "Добавлено"), (status = 503, body = crate::ErrorBody))
+    responses((status = 200, description = "Добавлено (info-hash)"), (status = 503, body = crate::ErrorBody))
 )]
 pub async fn add_topic(
     State(state): State<ApiState>,
     Path(id): Path<u64>,
     Json(options): Json<AddOptions>,
-) -> Result<StatusCode, ApiError> {
-    state.core.add_from_topic(id, options).await?;
-    Ok(StatusCode::NO_CONTENT)
+) -> Result<Json<String>, ApiError> {
+    Ok(Json(state.core.add_from_topic(id, options).await?))
 }
 
 /// Добавить торрент по magnet/http-ссылке.
 #[utoipa::path(
     post, path = "/api/v1/downloads/url", tag = "downloads",
     request_body = AddUrlBody,
-    responses((status = 204, description = "Добавлено"), (status = 503, body = crate::ErrorBody))
+    responses((status = 200, description = "Добавлено (info-hash)"), (status = 503, body = crate::ErrorBody))
 )]
 pub async fn add_url(
     State(state): State<ApiState>,
     Json(body): Json<AddUrlBody>,
-) -> Result<StatusCode, ApiError> {
-    state.core.add_url(body.url, body.options).await?;
-    Ok(StatusCode::NO_CONTENT)
+) -> Result<Json<String>, ApiError> {
+    Ok(Json(state.core.add_url(body.url, body.options).await?))
 }
 
 /// Поставить загрузки на паузу.

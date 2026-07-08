@@ -56,15 +56,15 @@ pub fn run() {
             commands::categories,
             commands::downloads,
             commands::transfer,
-            commands::qbit_categories,
+            commands::topic_files,
             commands::add_from_topic,
             commands::add_url,
             commands::pause,
             commands::resume,
             commands::remove,
             commands::status,
-            commands::start_qbit,
-            commands::stop_qbit,
+            commands::start_engine,
+            commands::stop_engine,
             commands::restart_api,
         ])
         .build(tauri::generate_context!())
@@ -75,7 +75,7 @@ pub fn run() {
                 let state = app_handle.state::<AppState>();
                 tauri::async_runtime::block_on(async {
                     state.stop_api().await;
-                    state.core.stop_qbit().await;
+                    state.core.stop_engine().await;
                 });
             }
         });
@@ -89,10 +89,10 @@ fn spawn_background_tasks(app: tauri::AppHandle, core: vek_core::SharedCore) {
         let core = core.clone();
         tauri::async_runtime::spawn(async move {
             let config = core.config();
-            if config.qbittorrent.autostart
-                && let Err(e) = core.ensure_qbit().await
+            if config.engine.autostart
+                && let Err(e) = core.ensure_engine().await
             {
-                tracing::warn!("не удалось автозапустить qBittorrent: {e}");
+                tracing::warn!("не удалось автозапустить торрент-движок: {e}");
             }
             if config.api.enabled {
                 let state = app.state::<AppState>();

@@ -90,12 +90,6 @@ function SettingsForm({ initial }: { initial: AppConfig }) {
     toast.info("Выход выполнен");
   };
 
-  const pickBinary = async () => {
-    const path = await open({ multiple: false, directory: false });
-    if (typeof path === "string")
-      patch((c) => ({ ...c, qbittorrent: { ...c.qbittorrent, binary_path: path } }));
-  };
-
   const pickSaveDir = async () => {
     const path = await open({ directory: true });
     if (typeof path === "string")
@@ -181,52 +175,35 @@ function SettingsForm({ initial }: { initial: AppConfig }) {
         </Section>
 
         <Section
-          title="qBittorrent"
-          subtitle={status?.qbitRunning ? `Запущен ${status.qbitVersion ?? ""}` : "Остановлен"}
+          title="Торрент-движок"
+          subtitle={
+            status?.engineRunning ? "Встроенный движок запущен" : "Встроенный движок остановлен"
+          }
         >
-          <Row label="Путь к программе" hint="Оставьте пустым для автопоиска">
-            <div className="flex gap-2">
-              <Input
-                value={config.qbittorrent.binary_path}
-                placeholder="автоопределение"
-                onChange={(e) =>
-                  patch((c) => ({
-                    ...c,
-                    qbittorrent: { ...c.qbittorrent, binary_path: e.target.value },
-                  }))
-                }
-              />
-              <Button variant="secondary" onClick={pickBinary}>
-                <FolderOpen className="h-4 w-4" />
-              </Button>
-            </div>
-          </Row>
-          <Row label="Порт Web UI" hint="0 — выбрать свободный автоматически">
+          <Row label="Порт для входящих соединений" hint="0 — выбрать автоматически">
             <Input
               type="number"
-              value={config.qbittorrent.port}
+              value={config.engine.listen_port}
               onChange={(e) =>
                 patch((c) => ({
                   ...c,
-                  qbittorrent: { ...c.qbittorrent, port: Number(e.target.value) || 0 },
+                  engine: { ...c.engine, listen_port: Number(e.target.value) || 0 },
                 }))
               }
             />
           </Row>
           <Toggle
-            checked={config.qbittorrent.autostart}
-            onChange={(v) =>
-              patch((c) => ({ ...c, qbittorrent: { ...c.qbittorrent, autostart: v } }))
-            }
-            label="Запускать вместе с приложением"
+            checked={config.engine.autostart}
+            onChange={(v) => patch((c) => ({ ...c, engine: { ...c.engine, autostart: v } }))}
+            label="Запускать движок вместе с приложением"
           />
           <div className="flex gap-2">
             <Button
               variant="secondary"
               onClick={() =>
                 api
-                  .startQbit()
-                  .then(() => toast.success("qBittorrent запускается…"))
+                  .startEngine()
+                  .then(() => toast.success("Движок запускается…"))
                   .catch((e) => toast.error(e instanceof ApiError ? e.message : String(e)))
               }
             >
@@ -234,7 +211,7 @@ function SettingsForm({ initial }: { initial: AppConfig }) {
             </Button>
             <Button
               variant="ghost"
-              onClick={() => api.stopQbit().then(() => toast.info("Остановлено"))}
+              onClick={() => api.stopEngine().then(() => toast.info("Движок остановлен"))}
             >
               Остановить
             </Button>
@@ -246,7 +223,7 @@ function SettingsForm({ initial }: { initial: AppConfig }) {
             <div className="flex gap-2">
               <Input
                 value={config.downloads.default_save_path}
-                placeholder="как настроено в qBittorrent"
+                placeholder="по умолчанию — папка приложения"
                 onChange={(e) =>
                   patch((c) => ({
                     ...c,

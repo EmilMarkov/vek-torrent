@@ -58,7 +58,7 @@ pub fn build_app(state: ApiState) -> axum::Router {
         .routes(routes!(routes::categories))
         .routes(routes!(routes::downloads))
         .routes(routes!(routes::transfer))
-        .routes(routes!(routes::qbit_categories))
+        .routes(routes!(routes::topic_files))
         .routes(routes!(routes::add_topic))
         .routes(routes!(routes::add_url))
         .routes(routes!(routes::pause))

@@ -2,7 +2,7 @@
 resolver = "3"
 members = [
   "crates/rutracker",
-  "crates/qbit",
+  "crates/engine",
   "crates/vek-core",
   "crates/vek-api",
   "src-tauri",
@@ -11,7 +11,7 @@ members = [
 # собираются только чистые крейты. CI собирает workspace целиком.
 default-members = [
   "crates/rutracker",
-  "crates/qbit",
+  "crates/engine",
   "crates/vek-core",
   "crates/vek-api",
 ]
@@ -26,13 +26,14 @@ authors = ["Alex <emil.markov2003@gmail.com>"]
 [workspace.dependencies]
 # Внутренние крейты
 rutracker = { path = "crates/rutracker" }
-qbit = { path = "crates/qbit" }
+engine = { path = "crates/engine" }
 vek-core = { path = "crates/vek-core" }
 vek-api = { path = "crates/vek-api" }
 
 # Общие зависимости
 anyhow = "1"
 axum = "0.8"
+librqbit = { version = "8.1", default-features = false, features = ["rust-tls"] }
 base64 = "0.22"
 cookie_store = "0.22"
 encoding_rs = "0.8"

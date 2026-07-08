@@ -1,0 +1,333 @@
+//! Обёртка над librqbit: запуск сессии, добавление, список, управление.
+
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
+
+use librqbit::{
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrent, Session, SessionOptions,
+    SessionPersistenceConfig, TorrentStatsState, api::TorrentIdOrHash,
+};
+
+/// Дескриптор управляемого торрента (в librqbit — `Arc<ManagedTorrent>`).
+type Handle = Arc<ManagedTorrent>;
+
+use crate::{
+    error::{Error, Result},
+    models::{AddParams, EngineFile, EngineTorrent, Source, TorrentPreview, TorrentState},
+};
+
+/// Конфигурация движка.
+#[derive(Debug, Clone)]
+pub struct EngineConfig {
+    /// Каталог сохранения загрузок по умолчанию.
+    pub download_dir: PathBuf,
+    /// Каталог для состояния сессии (персистентность торрентов).
+    pub state_dir: PathBuf,
+    /// Порт для входящих соединений; None — выбрать автоматически.
+    pub listen_port: Option<u16>,
+}
+
+/// Образец счётчиков для расчёта скорости между опросами.
+#[derive(Clone, Copy)]
+struct SpeedSample {
+    downloaded: u64,
+    uploaded: u64,
+    at: Instant,
+    /// Последние рассчитанные скорости — возвращаются при частых повторных
+    /// вызовах (dt мал), чтобы значения не «моргали» в 0.
+    dl_speed: u64,
+    up_speed: u64,
+}
+
+/// Встроенный торрент-движок.
+#[derive(Clone)]
+pub struct Engine {
+    session: Arc<Session>,
+    download_dir: PathBuf,
+    /// Кэш счётчиков для вычисления скоростей (дельта байт / время).
+    speeds: Arc<Mutex<HashMap<String, SpeedSample>>>,
+}
+
+impl Engine {
+    /// Запускает сессию движка.
+    pub async fn start(config: EngineConfig) -> Result<Self> {
+        std::fs::create_dir_all(&config.download_dir).map_err(|e| Error::Start(e.to_string()))?;
+        std::fs::create_dir_all(&config.state_dir).map_err(|e| Error::Start(e.to_string()))?;
+
+        let opts = SessionOptions {
+            persistence: Some(SessionPersistenceConfig::Json {
+                folder: Some(config.state_dir.clone()),
+            }),
+            fastresume: true,
+            listen_port_range: config.listen_port.map(|p| p..p.saturating_add(1)),
+            ..Default::default()
+        };
+
+        let session = Session::new_with_opts(config.download_dir.clone(), opts)
+            .await
+            .map_err(|e| Error::Start(e.to_string()))?;
+
+        Ok(Self {
+            session,
+            download_dir: config.download_dir,
+            speeds: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    fn build_add(source: &Source) -> AddTorrent<'_> {
+        match source {
+            Source::Url(url) => AddTorrent::from_url(url.clone()),
+            Source::TorrentBytes(bytes) => AddTorrent::from_bytes(bytes.clone()),
+        }
+    }
+
+    /// Добавляет торрент. Возвращает его info-hash (hex).
+    pub async fn add(&self, source: Source, params: AddParams) -> Result<String> {
+        let opts = AddTorrentOptions {
+            paused: params.paused,
+            only_files: params.only_files,
+            output_folder: params.output_folder,
+            overwrite: true,
+            ..Default::default()
+        };
+
+        let response = self
+            .session
+            .add_torrent(Self::build_add(&source), Some(opts))
+            .await
+            .map_err(|e| Error::Backend(e.to_string()))?;
+
+        let hash = match response {
+            AddTorrentResponse::Added(_, handle) => handle.info_hash().as_string(),
+            AddTorrentResponse::AlreadyManaged(_, handle) => handle.info_hash().as_string(),
+            AddTorrentResponse::ListOnly(list) => list.info_hash.as_string(),
+        };
+        Ok(hash)
+    }
+
+    /// Разбирает источник без запуска скачивания и возвращает список файлов.
+    pub async fn preview(&self, source: Source) -> Result<TorrentPreview> {
+        let opts = AddTorrentOptions {
+            list_only: true,
+            ..Default::default()
+        };
+        let response = self
+            .session
+            .add_torrent(Self::build_add(&source), Some(opts))
+            .await
+            .map_err(|e| Error::Backend(e.to_string()))?;
+
+        let AddTorrentResponse::ListOnly(list) = response else {
+            return Err(Error::InvalidSource(
+                "не удалось получить список файлов".into(),
+            ));
+        };
+
+        let mut files = Vec::new();
+        let mut total = 0u64;
+        let details = list
+            .info
+            .iter_file_details()
+            .map_err(|e| Error::Backend(e.to_string()))?;
+        for (index, detail) in details.enumerate() {
+            let path = detail
+                .filename
+                .to_vec()
+                .map_err(|e| Error::Backend(e.to_string()))?
+                .join("/");
+            total += detail.len;
+            files.push(EngineFile {
+                index,
+                path,
+                size: detail.len,
+            });
+        }
+
+        Ok(TorrentPreview {
+            hash: list.info_hash.as_string(),
+            // Имя формирует вызывающая сторона (из заголовка раздачи rutracker),
+            // чтобы не зависеть от внутреннего буферного типа librqbit.
+            name: String::new(),
+            files,
+            total_size: total,
+        })
+    }
+
+    /// Находит управляемый торрент по hex-хэшу.
+    ///
+    /// Итерируемся вручную через `next()`: обобщённые методы (`find`, `map`)
+    /// нельзя вызвать на `&mut dyn Iterator` (объект-безопасность).
+    fn find(&self, hash: &str) -> Option<(usize, Handle)> {
+        self.session.with_torrents(|torrents| {
+            while let Some((id, handle)) = torrents.next() {
+                if handle.info_hash().as_string() == hash {
+                    return Some((id, handle.clone()));
+                }
+            }
+            None
+        })
+    }
+
+    /// Ставит торрент на паузу.
+    pub async fn pause(&self, hash: &str) -> Result<()> {
+        let (_, handle) = self.find(hash).ok_or(Error::NotFound)?;
+        self.session
+            .pause(&handle)
+            .await
+            .map_err(|e| Error::Backend(e.to_string()))
+    }
+
+    /// Возобновляет торрент.
+    pub async fn resume(&self, hash: &str) -> Result<()> {
+        let (_, handle) = self.find(hash).ok_or(Error::NotFound)?;
+        self.session
+            .unpause(&handle)
+            .await
+            .map_err(|e| Error::Backend(e.to_string()))
+    }
+
+    /// Удаляет торрент (опционально с файлами).
+    pub async fn remove(&self, hash: &str, delete_files: bool) -> Result<()> {
+        let (id, _) = self.find(hash).ok_or(Error::NotFound)?;
+        self.speeds.lock().expect("speeds lock").remove(hash);
+        self.session
+            .delete(TorrentIdOrHash::Id(id), delete_files)
+            .await
+            .map_err(|e| Error::Backend(e.to_string()))
+    }
+
+    /// Снимок всех торрентов с рассчитанными скоростями.
+    pub fn torrents(&self) -> Vec<EngineTorrent> {
+        let handles: Vec<Handle> = self.session.with_torrents(|torrents| {
+            let mut handles = Vec::new();
+            while let Some((_, handle)) = torrents.next() {
+                handles.push(handle.clone());
+            }
+            handles
+        });
+
+        let now = Instant::now();
+        let mut cache = self.speeds.lock().expect("speeds lock");
+
+        handles
+            .iter()
+            .map(|handle| self.snapshot(handle, now, &mut cache))
+            .collect()
+    }
+
+    fn snapshot(
+        &self,
+        handle: &Handle,
+        now: Instant,
+        cache: &mut HashMap<String, SpeedSample>,
+    ) -> EngineTorrent {
+        let hash = handle.info_hash().as_string();
+        let stats = handle.stats();
+
+        let downloaded = stats.progress_bytes;
+        let uploaded = stats.uploaded_bytes;
+        let total = stats.total_bytes;
+
+        // Скорости считаем как дельту счётчиков между опросами — не зависит от
+        // единиц измерения внутренней оценки librqbit. При частых повторных
+        // вызовах (dt мал) возвращаем прошлые значения и не трогаем образец.
+        let (dl_speed, up_speed) = match cache.get(&hash) {
+            Some(prev) => {
+                let dt = now.duration_since(prev.at).as_secs_f64();
+                if dt >= 0.2 {
+                    let dl = rate(downloaded, prev.downloaded, dt);
+                    let up = rate(uploaded, prev.uploaded, dt);
+                    cache.insert(
+                        hash.clone(),
+                        SpeedSample { downloaded, uploaded, at: now, dl_speed: dl, up_speed: up },
+                    );
+                    (dl, up)
+                } else {
+                    (prev.dl_speed, prev.up_speed)
+                }
+            }
+            None => {
+                cache.insert(
+                    hash.clone(),
+                    SpeedSample { downloaded, uploaded, at: now, dl_speed: 0, up_speed: 0 },
+                );
+                (0, 0)
+            }
+        };
+
+        let peers = stats
+            .live
+            .as_ref()
+            .map(|l| l.snapshot.peer_stats.live as u32)
+            .unwrap_or(0);
+
+        let state = match stats.state {
+            TorrentStatsState::Paused => TorrentState::Paused,
+            TorrentStatsState::Error => TorrentState::Error,
+            TorrentStatsState::Initializing => TorrentState::Checking,
+            TorrentStatsState::Live if stats.finished => TorrentState::Seeding,
+            TorrentStatsState::Live => TorrentState::Downloading,
+        };
+
+        let progress = if total > 0 {
+            (downloaded as f64 / total as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let eta_secs = if !stats.finished && dl_speed > 0 && total > downloaded {
+            Some((total - downloaded) / dl_speed)
+        } else {
+            None
+        };
+
+        EngineTorrent {
+            name: handle.name().unwrap_or_else(|| hash.clone()),
+            hash,
+            size: total,
+            progress,
+            downloaded,
+            uploaded,
+            dl_speed,
+            up_speed,
+            eta_secs,
+            state,
+            peers,
+            finished: stats.finished,
+            save_path: self.download_dir.display().to_string(),
+            error: stats.error,
+        }
+    }
+
+}
+
+/// Скорость (байт/с) как дельта счётчиков за время dt.
+fn rate(current: u64, previous: u64, dt: f64) -> u64 {
+    if current <= previous || dt <= 0.0 {
+        return 0;
+    }
+    ((current - previous) as f64 / dt) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rate_computes_delta() {
+        assert_eq!(rate(2000, 1000, 1.0), 1000);
+        assert_eq!(rate(1000, 1000, 1.0), 0);
+        assert_eq!(rate(500, 1000, 1.0), 0);
+        assert_eq!(rate(3000, 1000, 2.0), 1000);
+    }
+
+    #[test]
+    fn state_str_roundtrip() {
+        assert_eq!(TorrentState::Downloading.as_str(), "downloading");
+        assert_eq!(TorrentState::Seeding.as_str(), "seeding");
+    }
+}

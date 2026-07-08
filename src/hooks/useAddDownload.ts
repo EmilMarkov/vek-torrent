@@ -30,9 +30,8 @@ export function useAddDownload() {
 function describeError(error: unknown): string {
   if (error instanceof ApiError) {
     switch (error.code) {
-      case "qbit_unavailable":
-      case "qbit_binary_not_found":
-        return "qBittorrent недоступен. Проверьте установку и настройки.";
+      case "engine_error":
+        return "Торрент-движок недоступен. Попробуйте перезапустить его в настройках.";
       case "not_authenticated":
         return "Требуется вход на rutracker (см. Настройки).";
       default:

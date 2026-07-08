@@ -6,7 +6,6 @@ import type {
   AddOptions,
   AppConfig,
   AppStatus,
-  Category,
   CaptchaAnswer,
   DownloadItem,
   ForumGroup,
@@ -15,6 +14,7 @@ import type {
   SearchRequest,
   SessionInfo,
   TopicPage,
+  TorrentFilesPreview,
   TransferSummary,
 } from "./types";
 
@@ -65,16 +65,16 @@ export const api = {
 
   downloads: () => call<DownloadItem[]>("downloads"),
   transfer: () => call<TransferSummary>("transfer"),
-  qbitCategories: () => call<Category[]>("qbit_categories"),
+  topicFiles: (topicId: number) => call<TorrentFilesPreview>("topic_files", { topicId }),
   addFromTopic: (topicId: number, options: AddOptions) =>
-    call<void>("add_from_topic", { topicId, options }),
-  addUrl: (url: string, options: AddOptions) => call<void>("add_url", { url, options }),
+    call<string>("add_from_topic", { topicId, options }),
+  addUrl: (url: string, options: AddOptions) => call<string>("add_url", { url, options }),
   pause: (hashes: string[]) => call<void>("pause", { hashes }),
   resume: (hashes: string[]) => call<void>("resume", { hashes }),
   remove: (hashes: string[], deleteFiles: boolean) => call<void>("remove", { hashes, deleteFiles }),
 
   status: () => call<AppStatus>("status"),
-  startQbit: () => call<void>("start_qbit"),
-  stopQbit: () => call<void>("stop_qbit"),
+  startEngine: () => call<void>("start_engine"),
+  stopEngine: () => call<void>("stop_engine"),
   restartApi: () => call<void>("restart_api"),
 };

@@ -29,8 +29,7 @@ impl From<CoreError> for CommandError {
             CoreError::NoCredentials => "no_credentials",
             CoreError::Rutracker(rutracker::Error::NotAuthenticated) => "not_authenticated",
             CoreError::Rutracker(rutracker::Error::BadCredentials) => "bad_credentials",
-            CoreError::QbitUnavailable(_) => "qbit_unavailable",
-            CoreError::QbitBinaryNotFound => "qbit_binary_not_found",
+            CoreError::Engine(_) | CoreError::EngineUnavailable(_) => "engine_error",
             CoreError::Config(_) => "invalid_config",
             _ => "error",
         };

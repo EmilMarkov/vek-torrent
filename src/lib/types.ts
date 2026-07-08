@@ -1,4 +1,4 @@
-// Типы данных, зеркалящие DTO бэкенда (vek-core / rutracker / qbit).
+// Типы данных, зеркалящие DTO бэкенда (vek-core / rutracker / engine).
 
 export type ApprovalStatus =
   | "approved"
@@ -101,16 +101,7 @@ export interface TopicPage {
   body: ContentBlock[];
 }
 
-export type TorrentState =
-  | "downloading"
-  | "uploading"
-  | "queued"
-  | "paused"
-  | "checking"
-  | "metadata"
-  | "moving"
-  | "error"
-  | "unknown";
+export type DownloadState = "downloading" | "seeding" | "paused" | "checking" | "error" | "unknown";
 
 export interface DownloadItem {
   hash: string;
@@ -120,43 +111,48 @@ export interface DownloadItem {
   dlspeed: number;
   upspeed: number;
   eta: number | null;
-  state: TorrentState;
-  stateRaw: string;
-  category: string;
+  state: DownloadState;
   savePath: string;
-  numSeeds: number;
-  numLeechs: number;
-  ratio: number;
-  addedOn: number;
-  completionOn: number;
+  numPeers: number;
+  downloaded: number;
+  uploaded: number;
+  finished: boolean;
+  error: string | null;
 }
 
 export interface TransferSummary {
   dlSpeed: number;
   upSpeed: number;
-  dlData: number;
-  upData: number;
-  connectionStatus: string;
+  active: number;
+  total: number;
 }
 
-export interface Category {
+export interface TorrentFile {
+  index: number;
+  path: string;
+  size: number;
+}
+
+export interface TorrentFilesPreview {
+  hash: string;
   name: string;
-  savePath: string;
+  totalSize: number;
+  files: TorrentFile[];
 }
 
 export interface AddOptions {
   savePath?: string | null;
-  category?: string | null;
   stopped?: boolean | null;
   preferMagnet?: boolean;
+  onlyFiles?: number[] | null;
 }
 
 export interface AppStatus {
-  qbitRunning: boolean;
-  qbitVersion: string | null;
+  engineRunning: boolean;
   apiRunning: boolean;
   loggedIn: boolean;
   username: string | null;
+  activeDownloads: number;
 }
 
 export interface SessionInfo {
@@ -186,9 +182,8 @@ export interface RutrackerConfig {
   proxy: string;
 }
 
-export interface QbitConfig {
-  binary_path: string;
-  port: number;
+export interface EngineConfig {
+  listen_port: number;
   autostart: boolean;
 }
 
@@ -206,7 +201,7 @@ export interface DownloadsConfig {
 
 export interface AppConfig {
   rutracker: RutrackerConfig;
-  qbittorrent: QbitConfig;
+  engine: EngineConfig;
   api: ApiConfig;
   downloads: DownloadsConfig;
 }

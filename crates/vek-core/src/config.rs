@@ -14,7 +14,7 @@ use crate::error::{Error, Result};
 #[serde(default)]
 pub struct AppConfig {
     pub rutracker: RutrackerConfig,
-    pub qbittorrent: QbitConfig,
+    pub engine: EngineConfig,
     pub api: ApiConfig,
     pub downloads: DownloadsConfig,
 }
@@ -43,23 +43,20 @@ impl Default for RutrackerConfig {
     }
 }
 
-/// Режим интеграции с qBittorrent. В этой сборке — только sidecar.
+/// Настройки встроенного торрент-движка (librqbit).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct QbitConfig {
-    /// Путь к исполняемому файлу qBittorrent; пусто — автопоиск.
-    pub binary_path: String,
-    /// Фиксированный порт Web UI; 0 — выбрать свободный автоматически.
-    pub port: u16,
-    /// Запускать sidecar при старте приложения.
+pub struct EngineConfig {
+    /// Порт для входящих соединений; 0 — выбрать автоматически.
+    pub listen_port: u16,
+    /// Запускать движок при старте приложения.
     pub autostart: bool,
 }
 
-impl Default for QbitConfig {
+impl Default for EngineConfig {
     fn default() -> Self {
         Self {
-            binary_path: String::new(),
-            port: 0,
+            listen_port: 0,
             autostart: true,
         }
     }
@@ -150,9 +147,19 @@ pub fn cookies_file(app_dir: &Path) -> PathBuf {
     app_dir.join("rutracker-cookies.json")
 }
 
-/// Каталог профиля sidecar qBittorrent.
-pub fn qbit_profile_dir(app_dir: &Path) -> PathBuf {
-    app_dir.join("qbittorrent-profile")
+/// Каталог состояния встроенного движка (персистентность торрентов).
+pub fn engine_state_dir(app_dir: &Path) -> PathBuf {
+    app_dir.join("engine-state")
+}
+
+/// Эффективный каталог загрузок: заданный пользователем либо `<app>/downloads`.
+pub fn downloads_dir(app_dir: &Path, config: &AppConfig) -> PathBuf {
+    let configured = config.downloads.default_save_path.trim();
+    if configured.is_empty() {
+        app_dir.join("downloads")
+    } else {
+        PathBuf::from(configured)
+    }
 }
 
 #[cfg(test)]
@@ -164,7 +171,7 @@ mod tests {
         let config = AppConfig::default();
         assert!(config.validate().is_ok());
         assert!(!config.has_credentials());
-        assert_eq!(config.qbittorrent.port, 0);
+        assert_eq!(config.engine.listen_port, 0);
         assert!(config.rutracker.mirror.starts_with("https://"));
     }
 

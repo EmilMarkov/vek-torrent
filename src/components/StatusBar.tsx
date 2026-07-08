@@ -1,4 +1,4 @@
-// Нижняя строка статуса: qBittorrent, сессия, скорости, внешний API.
+// Нижняя строка статуса: движок, сессия, скорости, внешний API.
 
 import { ArrowDown, ArrowUp, CircleDot } from "lucide-react";
 
@@ -14,10 +14,9 @@ export function StatusBar() {
 
   return (
     <footer className="flex items-center gap-4 border-t border-border bg-surface px-4 py-1.5 text-xs text-muted">
-      <span className="flex items-center gap-1.5" title="qBittorrent">
-        <CircleDot className={`h-3 w-3 ${dot(status?.qbitRunning ?? false)}`} />
-        qBittorrent
-        {status?.qbitVersion ? ` ${status.qbitVersion}` : status?.qbitRunning ? "" : " остановлен"}
+      <span className="flex items-center gap-1.5" title="Торрент-движок">
+        <CircleDot className={`h-3 w-3 ${dot(status?.engineRunning ?? false)}`} />
+        Движок{status?.engineRunning ? "" : " остановлен"}
       </span>
 
       <span className="flex items-center gap-1.5" title="Сессия rutracker">

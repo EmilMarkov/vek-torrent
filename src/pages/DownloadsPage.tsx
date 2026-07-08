@@ -19,28 +19,22 @@ import { Badge, Button, EmptyState, Spinner } from "@/components/ui";
 import { useDownloadsSnapshot, useDownloadsStore } from "@/hooks/useDownloads";
 import { api } from "@/lib/api";
 import { formatEta, formatSize, formatSpeed } from "@/lib/format";
-import type { DownloadItem, TorrentState } from "@/lib/types";
+import type { DownloadItem, DownloadState } from "@/lib/types";
 
-const STATE_LABELS: Record<TorrentState, string> = {
+const STATE_LABELS: Record<DownloadState, string> = {
   downloading: "Загрузка",
-  uploading: "Раздача",
-  queued: "В очереди",
+  seeding: "Раздача",
   paused: "Пауза",
-  checking: "Проверка",
-  metadata: "Метаданные",
-  moving: "Перемещение",
+  checking: "Подготовка",
   error: "Ошибка",
   unknown: "—",
 };
 
-const STATE_TONE: Record<TorrentState, "neutral" | "success" | "warn" | "danger" | "accent"> = {
+const STATE_TONE: Record<DownloadState, "neutral" | "success" | "warn" | "danger" | "accent"> = {
   downloading: "accent",
-  uploading: "success",
-  queued: "neutral",
+  seeding: "success",
   paused: "neutral",
   checking: "warn",
-  metadata: "warn",
-  moving: "warn",
   error: "danger",
   unknown: "neutral",
 };
@@ -115,7 +109,6 @@ function DownloadRow({ item }: { item: DownloadItem }) {
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium text-text">{item.name}</span>
             <Badge tone={STATE_TONE[item.state]}>{STATE_LABELS[item.state]}</Badge>
-            {item.category && <Badge tone="neutral">{item.category}</Badge>}
           </div>
 
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3">
@@ -147,9 +140,8 @@ function DownloadRow({ item }: { item: DownloadItem }) {
                 {formatSpeed(item.upspeed)}
               </span>
             )}
-            <span title="Сиды / личи">
-              {item.numSeeds} сид · {item.numLeechs} лич
-            </span>
+            <span title="Подключённые пиры">{item.numPeers} пиров</span>
+            {item.error && <span className="text-danger">· {item.error}</span>}
           </div>
         </div>
 

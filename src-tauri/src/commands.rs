@@ -5,8 +5,9 @@ use serde::Serialize;
 use tauri::State;
 
 use vek_core::AppConfig;
-use vek_core::models::{AddOptions, AppStatus, DownloadItem, TransferSummary};
-use vek_core::qbit_models::Category;
+use vek_core::models::{
+    AddOptions, AppStatus, DownloadItem, TorrentFilesPreview, TransferSummary,
+};
 use vek_core::rutracker_models::{
     CaptchaAnswer, CaptchaChallenge, ForumGroup, SearchPage, SearchRequest, SessionInfo, TopicPage,
 };
@@ -114,9 +115,13 @@ pub async fn transfer(state: State<'_, AppState>) -> CommandResult<TransferSumma
     Ok(state.core.transfer().await?)
 }
 
+/// Список файлов раздачи (для выбора перед скачиванием).
 #[tauri::command]
-pub async fn qbit_categories(state: State<'_, AppState>) -> CommandResult<Vec<Category>> {
-    Ok(state.core.qbit_categories().await?)
+pub async fn topic_files(
+    state: State<'_, AppState>,
+    topic_id: u64,
+) -> CommandResult<TorrentFilesPreview> {
+    Ok(state.core.preview_topic(topic_id).await?)
 }
 
 #[tauri::command]
@@ -124,9 +129,8 @@ pub async fn add_from_topic(
     state: State<'_, AppState>,
     topic_id: u64,
     options: AddOptions,
-) -> CommandResult<()> {
-    state.core.add_from_topic(topic_id, options).await?;
-    Ok(())
+) -> CommandResult<String> {
+    Ok(state.core.add_from_topic(topic_id, options).await?)
 }
 
 #[tauri::command]
@@ -134,9 +138,8 @@ pub async fn add_url(
     state: State<'_, AppState>,
     url: String,
     options: AddOptions,
-) -> CommandResult<()> {
-    state.core.add_url(url, options).await?;
-    Ok(())
+) -> CommandResult<String> {
+    Ok(state.core.add_url(url, options).await?)
 }
 
 #[tauri::command]
@@ -169,14 +172,14 @@ pub async fn status(state: State<'_, AppState>) -> CommandResult<AppStatus> {
 }
 
 #[tauri::command]
-pub async fn start_qbit(state: State<'_, AppState>) -> CommandResult<()> {
-    state.core.ensure_qbit().await?;
+pub async fn start_engine(state: State<'_, AppState>) -> CommandResult<()> {
+    state.core.ensure_engine().await?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn stop_qbit(state: State<'_, AppState>) -> CommandResult<()> {
-    state.core.stop_qbit().await;
+pub async fn stop_engine(state: State<'_, AppState>) -> CommandResult<()> {
+    state.core.stop_engine().await;
     Ok(())
 }
 

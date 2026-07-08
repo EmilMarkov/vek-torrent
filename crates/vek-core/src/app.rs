@@ -1,5 +1,5 @@
 //! [`AppCore`] — центральный оркестратор: конфигурация, клиент rutracker,
-//! sidecar qBittorrent и его клиент, доменные операции для UI и внешнего API.
+//! встроенный торрент-движок, доменные операции для UI и внешнего API.
 
 use std::{
     path::PathBuf,
@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use engine::{AddParams, Engine, Source};
 use rutracker::models::{
     CaptchaAnswer, ForumGroup, SearchPage, SearchRequest, SessionInfo, TopicPage,
 };
@@ -17,8 +18,7 @@ use rutracker::models::{
 use crate::{
     config::{self, AppConfig},
     error::{Error, Result},
-    models::{AddOptions, AppStatus, DownloadItem, TransferSummary},
-    sidecar::{self, SidecarOptions, SidecarProcess},
+    models::{AddOptions, AppStatus, DownloadItem, TorrentFilesPreview, TransferSummary},
 };
 
 /// Общий доступ к ядру приложения.
@@ -29,8 +29,7 @@ pub struct AppCore {
     app_dir: PathBuf,
     config: RwLock<AppConfig>,
     rutracker: RwLock<rutracker::Client>,
-    qbit: RwLock<Option<qbit::Client>>,
-    sidecar: tokio::sync::Mutex<Option<SidecarProcess>>,
+    engine: tokio::sync::Mutex<Option<Engine>>,
     api_running: AtomicBool,
 }
 
@@ -53,8 +52,7 @@ impl AppCore {
             app_dir,
             config: RwLock::new(config),
             rutracker: RwLock::new(rutracker),
-            qbit: RwLock::new(None),
-            sidecar: tokio::sync::Mutex::new(None),
+            engine: tokio::sync::Mutex::new(None),
             api_running: AtomicBool::new(false),
         }))
     }
@@ -201,207 +199,163 @@ impl AppCore {
         }
     }
 
-    // ── qBittorrent sidecar ─────────────────────────────────────────────
+    // ── Торрент-движок ──────────────────────────────────────────────────
 
-    /// Гарантирует, что sidecar запущен, и возвращает подключённый клиент.
-    pub async fn ensure_qbit(&self) -> Result<qbit::Client> {
-        if let Some(client) = self.qbit_client_if_alive().await {
-            return Ok(client);
+    /// Гарантирует, что встроенный движок запущен, и возвращает его.
+    pub async fn ensure_engine(&self) -> Result<Engine> {
+        let mut guard = self.engine.lock().await;
+        if let Some(existing) = guard.as_ref() {
+            return Ok(existing.clone());
         }
-
-        let mut guard = self.sidecar.lock().await;
-        // Повторная проверка под блокировкой (мог подняться параллельно).
-        if let Some(process) = guard.as_mut()
-            && process.is_running()
-        {
-            let client = process.client()?;
-            if client.is_alive().await {
-                *self.qbit.write().expect("qbit lock") = Some(client.clone());
-                return Ok(client);
-            }
-        }
-
         let config = self.config();
-        let options = SidecarOptions {
-            binary_path: config.qbittorrent.binary_path.clone(),
-            profile_dir: config::qbit_profile_dir(&self.app_dir),
-            preferred_port: config.qbittorrent.port,
-            default_save_path: config.downloads.default_save_path.clone(),
+        let engine_config = engine::EngineConfig {
+            download_dir: config::downloads_dir(&self.app_dir, &config),
+            state_dir: config::engine_state_dir(&self.app_dir),
+            listen_port: (config.engine.listen_port != 0).then_some(config.engine.listen_port),
         };
-
-        let process = sidecar::spawn(&options).await?;
-        let client = process.client()?;
-        *guard = Some(process);
-        *self.qbit.write().expect("qbit lock") = Some(client.clone());
-        Ok(client)
+        let started = Engine::start(engine_config).await?;
+        *guard = Some(started.clone());
+        Ok(started)
     }
 
-    async fn qbit_client_if_alive(&self) -> Option<qbit::Client> {
-        let client = self.qbit.read().expect("qbit lock").clone()?;
-        if client.is_alive().await {
-            Some(client)
-        } else {
-            None
-        }
+    async fn engine_if_running(&self) -> Option<Engine> {
+        self.engine.lock().await.clone()
     }
 
-    /// Останавливает sidecar (если запущен).
-    pub async fn stop_qbit(&self) {
-        *self.qbit.write().expect("qbit lock") = None;
-        let process = self.sidecar.lock().await.take();
-        if let Some(process) = process {
-            process.shutdown().await;
-        }
+    /// Останавливает движок (сбрасывает сессию; персистентность сохранена).
+    pub async fn stop_engine(&self) {
+        *self.engine.lock().await = None;
     }
 
     // ── Загрузки ────────────────────────────────────────────────────────
 
     /// Список загрузок.
     pub async fn downloads(&self) -> Result<Vec<DownloadItem>> {
-        let client = self.ensure_qbit().await?;
-        let torrents = client.torrents(&Default::default()).await?;
-        Ok(torrents.into_iter().map(DownloadItem::from).collect())
+        let engine = self.ensure_engine().await?;
+        Ok(engine.torrents().into_iter().map(DownloadItem::from).collect())
     }
 
     /// Глобальная статистика передачи.
     pub async fn transfer(&self) -> Result<TransferSummary> {
-        let client = self.ensure_qbit().await?;
-        Ok(client.transfer_info().await?.into())
+        let engine = self.ensure_engine().await?;
+        Ok(summarize(&engine.torrents()))
     }
 
-    /// Снимок загрузок и статистики БЕЗ запуска sidecar (для фонового опроса).
+    /// Снимок загрузок и статистики БЕЗ запуска движка (для фонового опроса).
     ///
-    /// Возвращает `None`, если qBittorrent сейчас не запущен.
+    /// Возвращает `None`, если движок сейчас не запущен.
     pub async fn snapshot(&self) -> Option<(Vec<DownloadItem>, TransferSummary)> {
-        let client = self.qbit_client_if_alive().await?;
-        let torrents = client.torrents(&Default::default()).await.ok()?;
-        let transfer = client.transfer_info().await.ok()?;
+        let engine = self.engine_if_running().await?;
+        let torrents = engine.torrents();
+        let transfer = summarize(&torrents);
         let items = torrents.into_iter().map(DownloadItem::from).collect();
-        Some((items, transfer.into()))
+        Some((items, transfer))
     }
 
-    /// Запущен ли sidecar qBittorrent прямо сейчас.
-    pub async fn qbit_running(&self) -> bool {
-        self.qbit_client_if_alive().await.is_some()
+    /// Запущен ли движок прямо сейчас.
+    pub async fn engine_running(&self) -> bool {
+        self.engine_if_running().await.is_some()
     }
 
-    /// Категории qBittorrent.
-    pub async fn qbit_categories(&self) -> Result<Vec<qbit::models::Category>> {
-        let client = self.ensure_qbit().await?;
-        client.categories().await.map_err(Error::from)
-    }
-
-    /// Добавляет раздачу в загрузки, скачивая `.torrent` или используя magnet.
-    pub async fn add_from_topic(&self, topic_id: u64, options: AddOptions) -> Result<()> {
-        let config = self.config();
-        let qbit_client = self.ensure_qbit().await?;
-
-        let topic = self
-            .with_auth_retry(|client| async move { client.topic(topic_id).await })
-            .await?;
-
-        let source = self.pick_source(topic_id, &topic, options.prefer_magnet).await?;
-
-        let stopped = options.stopped.unwrap_or(config.downloads.add_stopped);
-        let save_path = options
-            .save_path
-            .filter(|p| !p.trim().is_empty())
-            .or_else(|| {
-                Some(config.downloads.default_save_path.clone())
-                    .filter(|p| !p.trim().is_empty())
-            });
-
-        let add = qbit::models::AddTorrent {
-            sources: vec![source],
-            save_path,
-            category: options.category.filter(|c| !c.trim().is_empty()),
-            tags: Vec::new(),
-            stopped,
-            skip_checking: false,
-        };
-        qbit_client.add_torrent(&add).await.map_err(Error::from)
-    }
-
-    /// Выбирает источник: `.torrent`-файл (по умолчанию) или magnet.
+    /// Готовит источник для добавления: `.torrent`-файл (по умолчанию) или magnet.
     async fn pick_source(
         &self,
         topic_id: u64,
         topic: &TopicPage,
         prefer_magnet: bool,
-    ) -> Result<qbit::models::TorrentSource> {
+    ) -> Result<Source> {
         let use_magnet = prefer_magnet || !topic.has_torrent_file;
         if use_magnet && let Some(magnet) = &topic.magnet {
-            return Ok(qbit::models::TorrentSource::Url(magnet.clone()));
+            return Ok(Source::Url(magnet.clone()));
         }
-
         if topic.has_torrent_file {
             let file = self
                 .with_auth_retry(|client| async move { client.download_torrent(topic_id).await })
                 .await?;
-            return Ok(qbit::models::TorrentSource::File {
-                filename: file
-                    .filename
-                    .unwrap_or_else(|| format!("{topic_id}.torrent")),
-                bytes: file.bytes,
-            });
+            return Ok(Source::TorrentBytes(file.bytes));
         }
-
-        // Файла нет — последний шанс — magnet.
         if let Some(magnet) = &topic.magnet {
-            return Ok(qbit::models::TorrentSource::Url(magnet.clone()));
+            return Ok(Source::Url(magnet.clone()));
         }
-
         Err(Error::Rutracker(rutracker::Error::AccessDenied(
             "у раздачи нет ни .torrent, ни magnet-ссылки".into(),
         )))
     }
 
-    /// Добавляет торрент по magnet- или http-ссылке напрямую.
-    pub async fn add_url(&self, url: String, options: AddOptions) -> Result<()> {
+    fn add_params(&self, config: &AppConfig, options: &AddOptions) -> AddParams {
+        let output_folder = options
+            .save_path
+            .clone()
+            .filter(|p| !p.trim().is_empty());
+        AddParams {
+            output_folder,
+            paused: options.stopped.unwrap_or(config.downloads.add_stopped),
+            only_files: options.only_files.clone().filter(|f| !f.is_empty()),
+        }
+    }
+
+    /// Возвращает список файлов раздачи (для выбора перед скачиванием).
+    pub async fn preview_topic(&self, topic_id: u64) -> Result<TorrentFilesPreview> {
+        let engine = self.ensure_engine().await?;
+        let topic = self
+            .with_auth_retry(|client| async move { client.topic(topic_id).await })
+            .await?;
+        let source = self.pick_source(topic_id, &topic, false).await?;
+        let preview = engine.preview(source).await?;
+        Ok(TorrentFilesPreview {
+            hash: preview.hash,
+            name: if preview.name.is_empty() { topic.title } else { preview.name },
+            total_size: preview.total_size,
+            files: preview.files.into_iter().map(Into::into).collect(),
+        })
+    }
+
+    /// Добавляет раздачу в загрузки, скачивая `.torrent` или используя magnet.
+    pub async fn add_from_topic(&self, topic_id: u64, options: AddOptions) -> Result<String> {
         let config = self.config();
-        let client = self.ensure_qbit().await?;
-        let add = qbit::models::AddTorrent {
-            sources: vec![qbit::models::TorrentSource::Url(url)],
-            save_path: options
-                .save_path
-                .filter(|p| !p.trim().is_empty())
-                .or_else(|| {
-                    Some(config.downloads.default_save_path.clone())
-                        .filter(|p| !p.trim().is_empty())
-                }),
-            category: options.category.filter(|c| !c.trim().is_empty()),
-            tags: Vec::new(),
-            stopped: options.stopped.unwrap_or(config.downloads.add_stopped),
-            skip_checking: false,
-        };
-        client.add_torrent(&add).await.map_err(Error::from)
+        let engine = self.ensure_engine().await?;
+        let topic = self
+            .with_auth_retry(|client| async move { client.topic(topic_id).await })
+            .await?;
+        let source = self.pick_source(topic_id, &topic, options.prefer_magnet).await?;
+        engine.add(source, self.add_params(&config, &options)).await.map_err(Error::from)
     }
 
-    /// Ставит загрузки на паузу.
+    /// Добавляет торрент по magnet- или http-ссылке напрямую.
+    pub async fn add_url(&self, url: String, options: AddOptions) -> Result<String> {
+        let config = self.config();
+        let engine = self.ensure_engine().await?;
+        engine
+            .add(Source::Url(url), self.add_params(&config, &options))
+            .await
+            .map_err(Error::from)
+    }
+
+    /// Ставит загрузку на паузу.
     pub async fn pause(&self, hashes: Vec<String>) -> Result<()> {
-        self.ensure_qbit()
-            .await?
-            .stop(&hashes)
-            .await
-            .map_err(Error::from)
+        let engine = self.ensure_engine().await?;
+        for hash in &hashes {
+            engine.pause(hash).await?;
+        }
+        Ok(())
     }
 
-    /// Возобновляет загрузки.
+    /// Возобновляет загрузку.
     pub async fn resume(&self, hashes: Vec<String>) -> Result<()> {
-        self.ensure_qbit()
-            .await?
-            .start(&hashes)
-            .await
-            .map_err(Error::from)
+        let engine = self.ensure_engine().await?;
+        for hash in &hashes {
+            engine.resume(hash).await?;
+        }
+        Ok(())
     }
 
     /// Удаляет загрузки (опционально с файлами).
     pub async fn remove(&self, hashes: Vec<String>, delete_files: bool) -> Result<()> {
-        self.ensure_qbit()
-            .await?
-            .delete(&hashes, delete_files)
-            .await
-            .map_err(Error::from)
+        let engine = self.ensure_engine().await?;
+        for hash in &hashes {
+            engine.remove(hash, delete_files).await?;
+        }
+        Ok(())
     }
 
     // ── Статус ──────────────────────────────────────────────────────────
@@ -413,20 +367,43 @@ impl AppCore {
 
     /// Сводный статус подсистем.
     pub async fn status(&self) -> AppStatus {
-        let (qbit_running, qbit_version) = match self.qbit_client_if_alive().await {
-            Some(client) => (true, client.version().await.ok()),
-            None => (false, None),
+        let (engine_running, active_downloads) = match self.engine_if_running().await {
+            Some(engine) => {
+                let active = engine
+                    .torrents()
+                    .iter()
+                    .filter(|t| matches!(t.state, engine::TorrentState::Downloading))
+                    .count() as u32;
+                (true, active)
+            }
+            None => (false, 0),
         };
 
         let session = self.session_status().await.ok();
         AppStatus {
-            qbit_running,
-            qbit_version,
+            engine_running,
             api_running: self.api_running.load(Ordering::SeqCst),
             logged_in: session.as_ref().map(|s| s.logged_in).unwrap_or(false),
             username: session.and_then(|s| s.username),
+            active_downloads,
         }
     }
+}
+
+/// Сводит список торрентов в общую статистику передачи.
+fn summarize(torrents: &[engine::EngineTorrent]) -> TransferSummary {
+    let mut summary = TransferSummary {
+        total: torrents.len() as u32,
+        ..Default::default()
+    };
+    for t in torrents {
+        summary.dl_speed += t.dl_speed;
+        summary.up_speed += t.up_speed;
+        if matches!(t.state, engine::TorrentState::Downloading) {
+            summary.active += 1;
+        }
+    }
+    summary
 }
 
 fn build_rutracker_client(

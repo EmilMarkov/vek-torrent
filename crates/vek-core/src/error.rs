@@ -7,9 +7,9 @@ pub enum Error {
     #[error(transparent)]
     Rutracker(#[from] rutracker::Error),
 
-    /// Ошибка клиента qBittorrent.
+    /// Ошибка встроенного торрент-движка.
     #[error(transparent)]
-    Qbit(#[from] qbit::Error),
+    Engine(#[from] engine::Error),
 
     /// Требуется ввод капчи при входе на rutracker.
     #[error("требуется ввод капчи")]
@@ -19,13 +19,9 @@ pub enum Error {
     #[error("не заданы логин и пароль rutracker")]
     NoCredentials,
 
-    /// qBittorrent не запущен / недоступен.
-    #[error("qBittorrent недоступен: {0}")]
-    QbitUnavailable(String),
-
-    /// Не найден исполняемый файл qBittorrent.
-    #[error("не найден исполняемый файл qBittorrent; укажите путь в настройках")]
-    QbitBinaryNotFound,
+    /// Торрент-движок недоступен / не запустился.
+    #[error("торрент-движок недоступен: {0}")]
+    EngineUnavailable(String),
 
     /// Ошибка конфигурации.
     #[error("ошибка конфигурации: {0}")]
