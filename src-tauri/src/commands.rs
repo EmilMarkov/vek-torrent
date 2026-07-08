@@ -164,8 +164,8 @@ pub async fn remove(
 // ── Система ──────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn status(state: State<'_, AppState>) -> AppStatus {
-    state.core.status().await
+pub async fn status(state: State<'_, AppState>) -> CommandResult<AppStatus> {
+    Ok(state.core.status().await)
 }
 
 #[tauri::command]
