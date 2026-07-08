@@ -11,8 +11,10 @@ use crate::{
     parse::common::collapse_whitespace,
 };
 
-static SELECT: LazyLock<Selector> = LazyLock::new(|| Selector::parse("#fs-main").expect("selector"));
-static OPTGROUP: LazyLock<Selector> = LazyLock::new(|| Selector::parse("optgroup").expect("selector"));
+static SELECT: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("#fs-main").expect("selector"));
+static OPTGROUP: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("optgroup").expect("selector"));
 static OPTION: LazyLock<Selector> = LazyLock::new(|| Selector::parse("option").expect("selector"));
 
 /// Разбирает дерево «категория → форумы (с вложенностью)».

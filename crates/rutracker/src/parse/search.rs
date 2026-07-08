@@ -12,8 +12,12 @@ use crate::{
     parse::common::{element_text, first_int, has_class, parse_size_text, query_param},
 };
 
-static ROW: LazyLock<Selector> =
-    LazyLock::new(|| Selector::parse("table#tor-tbl tr.hl-tr, tr.tCenter.hl-tr").expect("selector"));
+static ROW: LazyLock<Selector> = LazyLock::new(|| {
+    Selector::parse("table#tor-tbl tr.hl-tr, tr.tCenter.hl-tr").expect("selector")
+});
+static TD: LazyLock<Selector> = LazyLock::new(|| Selector::parse("td").expect("selector"));
+static SIZE_LINK: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("a.tr-dl").expect("selector"));
 static TOPIC_LINK: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("td.t-title-col a, a.tLink").expect("selector"));
 static FORUM_LINK: LazyLock<Selector> =
@@ -48,9 +52,7 @@ pub fn parse_search_page(html: &str, offset: u32) -> Result<SearchPage> {
         .and_then(|c| c[1].parse().ok())
         .unwrap_or(u64::from(offset) + items.len() as u64);
 
-    let search_id = RE_SEARCH_ID
-        .captures(html)
-        .map(|c| c[1].to_owned());
+    let search_id = RE_SEARCH_ID.captures(html).map(|c| c[1].to_owned());
 
     // Страница без таблицы результатов и без счётчика — что-то другое
     // (заглушка, техработы, антибот).
@@ -100,10 +102,16 @@ fn parse_row(row: ElementRef<'_>) -> Option<SearchResult> {
         .select(&SIZE_CELL)
         .next()
         .and_then(|td| {
+            // Основной путь — скрытый <u> с точным числом байт; запасной —
+            // человекочитаемый текст ссылки («2.67 GB»), без текста <u>.
             td.select(&U_TAG)
                 .next()
                 .and_then(|u| element_text(u).parse().ok())
-                .or_else(|| parse_size_text(&element_text(td)))
+                .or_else(|| {
+                    td.select(&SIZE_LINK)
+                        .next()
+                        .and_then(|a| parse_size_text(&element_text(a)))
+                })
         })
         .unwrap_or(0);
 
@@ -127,10 +135,11 @@ fn parse_row(row: ElementRef<'_>) -> Option<SearchResult> {
         .and_then(|td| first_int(&element_text(td)))
         .unwrap_or(0);
 
-    // Дата регистрации — последний скрытый <u> в строке (unix-время).
+    // Дата регистрации — скрытый <u> (unix-время) в последней ячейке строки.
     let added_unix = row
-        .select(&U_TAG)
+        .select(&TD)
         .last()
+        .and_then(|td| td.select(&U_TAG).next())
         .and_then(|u| element_text(u).parse::<i64>().ok())
         .unwrap_or(0);
 

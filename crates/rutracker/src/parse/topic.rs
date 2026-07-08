@@ -86,21 +86,11 @@ pub fn parse_topic_page(html: &str, id: u64, base: &Url) -> Result<TopicPage> {
     let page_text = collapse_whitespace(&doc.root_element().text().collect::<String>());
 
     let stats = TorrentStats {
-        size_bytes: RE_SIZE
-            .captures(&page_text)
-            .and_then(|c| parse_size_text(&c[1])),
-        seeders: doc
-            .select(&SEED)
-            .next()
-            .and_then(|el| first_int(&element_text(el))),
-        leechers: doc
-            .select(&LEECH)
-            .next()
-            .and_then(|el| first_int(&element_text(el))),
+        size_bytes: RE_SIZE.captures(&page_text).and_then(|c| parse_size_text(&c[1])),
+        seeders: doc.select(&SEED).next().and_then(|el| first_int(&element_text(el))),
+        leechers: doc.select(&LEECH).next().and_then(|el| first_int(&element_text(el))),
         completed: RE_COMPLETED.captures(&page_text).and_then(|c| first_int(&c[1])),
-        registered: RE_REGISTERED
-            .captures(&page_text)
-            .map(|c| c[1].trim().to_owned()),
+        registered: RE_REGISTERED.captures(&page_text).map(|c| c[1].trim().to_owned()),
     };
 
     Ok(TopicPage {

@@ -3,7 +3,7 @@
 use std::{
     fs,
     io::{BufReader, BufWriter},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
@@ -160,10 +160,7 @@ impl Client {
         let resp = self
             .http
             .post(url)
-            .header(
-                header::CONTENT_TYPE,
-                "application/x-www-form-urlencoded",
-            )
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(body)
             .send()
             .await?
@@ -183,6 +180,16 @@ impl Client {
         password: &str,
         captcha: Option<&CaptchaAnswer>,
     ) -> Result<()> {
+        // Начинаем с чистого стора: локально живая, но протухшая на сервере
+        // кука не должна маскировать неудачный вход под успех.
+        {
+            let mut store = self
+                .cookies
+                .lock()
+                .map_err(|_| Error::CookieStore("хранилище куков повреждено".into()))?;
+            *store = CookieStore::default();
+        }
+
         let mut pairs: Vec<(String, String)> = vec![
             ("login_username".to_owned(), username.to_owned()),
             ("login_password".to_owned(), password.to_owned()),
@@ -247,8 +254,7 @@ impl Client {
         let mut writer = BufWriter::new(fs::File::create(path)?);
         // Сохраняем и «сессионные» куки без Expires: сессия должна переживать
         // перезапуск приложения.
-        store
-            .save_incl_expired_and_nonpersistent_json(&mut writer)
+        cookie_store::serde::json::save_incl_expired_and_nonpersistent(&store, &mut writer)
             .map_err(|e| Error::CookieStore(e.to_string()))
     }
 
@@ -320,8 +326,7 @@ impl Client {
         let looks_like_torrent = content_type
             .as_deref()
             .is_some_and(|ct| ct.contains("bittorrent"))
-            || bytes.starts_with(b"d8:announce")
-            || (bytes.first() == Some(&b'd') && !bytes.starts_with(b"<"));
+            || bytes.first() == Some(&b'd');
 
         if !looks_like_torrent {
             let html = decode_body(&bytes, content_type.as_deref());
@@ -386,9 +391,9 @@ fn normalize_base(input: &str) -> Result<Url> {
     Url::parse(&with_forum).map_err(|e| Error::Url(format!("{input}: {e}")))
 }
 
-fn load_cookie_store(path: &PathBuf) -> CookieStore {
+fn load_cookie_store(path: &Path) -> CookieStore {
     match fs::File::open(path) {
-        Ok(file) => match CookieStore::load_json_all(BufReader::new(file)) {
+        Ok(file) => match cookie_store::serde::json::load_all(BufReader::new(file)) {
             Ok(store) => store,
             Err(e) => {
                 tracing::warn!("файл куков повреждён, начинаем с чистой сессии: {e}");

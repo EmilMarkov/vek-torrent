@@ -11,8 +11,10 @@ use crate::{
     parse::common::{element_text, has_class, query_param},
 };
 
-static SP_HEAD: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".sp-head").expect("selector"));
-static SP_BODY: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".sp-body").expect("selector"));
+static SP_HEAD: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse(".sp-head").expect("selector"));
+static SP_BODY: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse(".sp-body").expect("selector"));
 static Q_INNER: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".q").expect("selector"));
 static Q_HEAD: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".q-head").expect("selector"));
 static C_BODY: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".c-body").expect("selector"));
@@ -199,7 +201,7 @@ fn handle_element(el: ElementRef<'_>, marks: &Marks, builder: &mut Builder, base
             }
         }
 
-        "div" => {
+        "div" | "p" => {
             if has_class(el, "sp-wrap") {
                 handle_spoiler(el, marks, builder, base);
             } else if has_class(el, "q-wrap") {
@@ -586,9 +588,8 @@ mod tests {
 
     #[test]
     fn magnet_links_are_skipped_in_body() {
-        let blocks = parse_blocks(
-            r#"Текст <a class="magnet-link" href="magnet:?xt=urn:btih:abc">magnet</a> дальше"#,
-        );
+        let html = r#"Текст <a class="magnet-link" href="magnet:?xt=urn:btih:abc">m</a> дальше"#;
+        let blocks = parse_blocks(html);
         let ContentBlock::Paragraph { inlines } = &blocks[0] else {
             panic!()
         };

@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn reads_session_username() {
-        let html = r##"<html><body><a id="logged-in-username" href="#">torrent_fan</a></body></html>"##;
+        let html = r#"<html><body><a id="logged-in-username">torrent_fan</a></body></html>"#;
         let info = session_info(html);
         assert!(info.logged_in);
         assert_eq!(info.username.as_deref(), Some("torrent_fan"));
