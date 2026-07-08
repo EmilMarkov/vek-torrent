@@ -1,4 +1,4 @@
-// Настройки: аккаунт rutracker (с капчей), qBittorrent, загрузки, внешний API.
+// Настройки: аккаунт rutracker (с капчей), движок, загрузки, внешний API.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, FolderOpen, LogIn, LogOut, RefreshCw } from "lucide-react";
