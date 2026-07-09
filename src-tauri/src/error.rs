@@ -29,7 +29,8 @@ impl From<CoreError> for CommandError {
             CoreError::NoCredentials => "no_credentials",
             CoreError::Rutracker(rutracker::Error::NotAuthenticated) => "not_authenticated",
             CoreError::Rutracker(rutracker::Error::BadCredentials) => "bad_credentials",
-            CoreError::Engine(_) | CoreError::EngineUnavailable(_) => "engine_error",
+            CoreError::EngineUnavailable(_) => "engine_unavailable",
+            CoreError::Engine(_) => "engine_error",
             CoreError::Config(_) => "invalid_config",
             _ => "error",
         };

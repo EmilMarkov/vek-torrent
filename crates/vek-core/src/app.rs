@@ -311,23 +311,58 @@ impl AppCore {
     }
 
     /// Возвращает список файлов раздачи (для выбора перед скачиванием).
+    ///
+    /// Источники пробуются по очереди: сначала `.torrent`-файл (метаданные уже
+    /// внутри — быстро, без сети), затем magnet (метаданные тянутся из роя —
+    /// медленно, с таймаутом). Если движок отверг один источник, пробуем
+    /// следующий, чтобы не падать на нестандартных раздачах. Наверх уходит
+    /// реальная последняя ошибка, а не общее «движок недоступен».
     pub async fn preview_topic(&self, topic_id: u64) -> Result<TorrentFilesPreview> {
         let engine = self.ensure_engine().await?;
         let topic = self
             .with_auth_retry(|client| async move { client.topic(topic_id).await })
             .await?;
-        let source = self.pick_source(topic_id, &topic, false).await?;
-        let preview = engine.preview(source).await?;
-        Ok(TorrentFilesPreview {
-            hash: preview.hash,
-            name: if preview.name.is_empty() {
-                topic.title
-            } else {
-                preview.name
-            },
-            total_size: preview.total_size,
-            files: preview.files.into_iter().map(Into::into).collect(),
-        })
+
+        let mut last_err: Option<Error> = None;
+        let mut sources: Vec<Source> = Vec::new();
+
+        if topic.has_torrent_file {
+            match self
+                .with_auth_retry(|client| async move { client.download_torrent(topic_id).await })
+                .await
+            {
+                Ok(file) => sources.push(Source::TorrentBytes(file.bytes)),
+                // Не удалось скачать .torrent — попробуем magnet ниже.
+                Err(e) => last_err = Some(e),
+            }
+        }
+        if let Some(magnet) = &topic.magnet {
+            sources.push(Source::Url(magnet.clone()));
+        }
+
+        for source in sources {
+            match engine.preview(source).await {
+                Ok(preview) => {
+                    return Ok(TorrentFilesPreview {
+                        hash: preview.hash,
+                        name: if preview.name.is_empty() {
+                            topic.title.clone()
+                        } else {
+                            preview.name
+                        },
+                        total_size: preview.total_size,
+                        files: preview.files.into_iter().map(Into::into).collect(),
+                    });
+                }
+                Err(e) => last_err = Some(Error::from(e)),
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| {
+            Error::Rutracker(rutracker::Error::AccessDenied(
+                "у раздачи нет ни .torrent, ни magnet-ссылки".into(),
+            ))
+        }))
     }
 
     /// Добавляет раздачу в загрузки, скачивая `.torrent` или используя magnet.
