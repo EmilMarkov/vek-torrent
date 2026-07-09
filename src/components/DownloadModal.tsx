@@ -129,12 +129,12 @@ interface Row {
   depth: number;
 }
 
-/** Разворачивает дерево в плоский список строк с учётом свёрнутых папок. */
-function flatten(nodes: TreeNode[], depth: number, collapsed: Set<string>, out: Row[]) {
+/** Разворачивает дерево в плоский список строк с учётом раскрытых папок. */
+function flatten(nodes: TreeNode[], depth: number, expanded: Set<string>, out: Row[]) {
   for (const node of nodes) {
     out.push({ node, depth });
-    if (node.kind === "folder" && !collapsed.has(node.path)) {
-      flatten(node.children, depth + 1, collapsed, out);
+    if (node.kind === "folder" && expanded.has(node.path)) {
+      flatten(node.children, depth + 1, expanded, out);
     }
   }
 }
@@ -151,7 +151,8 @@ function ModalBody({
   const setView = useAppStore((s) => s.setView);
   // null — «пользователь ничего не менял» → выбраны все файлы по умолчанию.
   const [custom, setCustom] = useState<Set<number> | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // По умолчанию все папки свёрнуты (раскрытые — в этом множестве).
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [stopped, setStopped] = useState(false);
   const [adding, setAdding] = useState(false);
 
@@ -166,9 +167,9 @@ function ModalBody({
   const rows = useMemo(() => {
     if (!tree) return [];
     const out: Row[] = [];
-    flatten(tree.children, 0, collapsed, out);
+    flatten(tree.children, 0, expanded, out);
     return out;
-  }, [tree, collapsed]);
+  }, [tree, expanded]);
 
   // Эффективный выбор: пользовательский либо «все» (без эффектов синхронизации).
   const selected = custom ?? allIndices;
@@ -189,8 +190,8 @@ function ModalBody({
       return next;
     });
 
-  const toggleCollapse = (path: string) =>
-    setCollapsed((prev) => {
+  const toggleExpand = (path: string) =>
+    setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
       else next.add(path);
@@ -256,7 +257,7 @@ function ModalBody({
             <div className="p-2">
               <button
                 onClick={toggleAll}
-                className="mb-1 flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs font-medium text-muted hover:bg-surface-2"
+                className="mb-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs font-medium text-muted hover:bg-surface-2"
               >
                 {allSelected ? (
                   <CheckSquare className="h-4 w-4 text-accent" />
@@ -271,9 +272,9 @@ function ModalBody({
                   node={node}
                   depth={depth}
                   selected={selected}
-                  collapsed={collapsed}
+                  expanded={expanded}
                   onToggle={setMany}
-                  onCollapse={toggleCollapse}
+                  onExpand={toggleExpand}
                 />
               ))}
             </div>
@@ -310,26 +311,25 @@ function TreeRow({
   node,
   depth,
   selected,
-  collapsed,
+  expanded,
   onToggle,
-  onCollapse,
+  onExpand,
 }: {
   node: TreeNode;
   depth: number;
   selected: Set<number>;
-  collapsed: Set<string>;
+  expanded: Set<string>;
   onToggle: (indices: number[], select: boolean) => void;
-  onCollapse: (path: string) => void;
+  onExpand: (path: string) => void;
 }) {
-  const pad = { paddingLeft: 8 + depth * 16 };
+  // Чекбоксы стоят единой колонкой слева (без отступа); вложенность сдвигает
+  // только метку — иконку с названием.
+  const indent = { paddingLeft: depth * 16 };
 
   if (node.kind === "file") {
     const checked = selected.has(node.index);
     return (
-      <div
-        className="flex items-center gap-1.5 rounded-md py-1 pr-2 hover:bg-surface-2"
-        style={pad}
-      >
+      <div className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-surface-2">
         <button
           onClick={() => onToggle([node.index], !checked)}
           className="shrink-0"
@@ -341,11 +341,13 @@ function TreeRow({
             <Square className="h-4 w-4 text-faint" />
           )}
         </button>
-        <span className="w-3.5 shrink-0" />
-        <FileIcon className="h-4 w-4 shrink-0 text-faint" />
-        <span className="min-w-0 flex-1 truncate text-sm text-text/90" title={node.name}>
-          {node.name}
-        </span>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5" style={indent}>
+          <span className="w-3.5 shrink-0" />
+          <FileIcon className="h-4 w-4 shrink-0 text-faint" />
+          <span className="min-w-0 flex-1 truncate text-sm text-text/90" title={node.name}>
+            {node.name}
+          </span>
+        </div>
         <span className="shrink-0 text-xs text-faint">{formatSize(node.size)}</span>
       </div>
     );
@@ -353,10 +355,10 @@ function TreeRow({
 
   const chosen = node.indices.reduce((n, i) => n + (selected.has(i) ? 1 : 0), 0);
   const state = chosen === 0 ? "none" : chosen === node.indices.length ? "all" : "some";
-  const open = !collapsed.has(node.path);
+  const open = expanded.has(node.path);
 
   return (
-    <div className="flex items-center gap-1.5 rounded-md py-1 pr-2 hover:bg-surface-2" style={pad}>
+    <div className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-surface-2">
       <button
         onClick={() => onToggle(node.indices, state !== "all")}
         className="shrink-0"
@@ -371,8 +373,9 @@ function TreeRow({
         )}
       </button>
       <button
-        onClick={() => onCollapse(node.path)}
+        onClick={() => onExpand(node.path)}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        style={indent}
       >
         {open ? (
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" />
