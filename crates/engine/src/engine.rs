@@ -1,6 +1,9 @@
 //! Обёртка над librqbit: запуск сессии, добавление, список, управление.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Once},
+};
 
 use librqbit::{
     AddTorrent, AddTorrentOptions, AddTorrentResponse, ManagedTorrent, Session, SessionOptions,
@@ -33,9 +36,27 @@ pub struct Engine {
     download_dir: PathBuf,
 }
 
+/// Однократно поднимает мягкий лимит открытых файлов (`RLIMIT_NOFILE`).
+///
+/// Файловое хранилище librqbit держит открытый дескриптор на *каждый* файл
+/// раздачи. Крупные раздачи (игры с тысячами файлов) упираются в мягкий лимит:
+/// у GUI-приложений на macOS он всего 256, и открытие очередного файла падает
+/// с «error opening … in read/write mode» — на случайном файле, где счётчик
+/// исчерпался. Поднимаем лимит до жёсткого (с учётом `kern.maxfilesperproc`).
+/// На платформах без `RLIMIT_NOFILE` (Windows) — тихо ничего не делает.
+fn raise_fd_limit() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| match rlimit::increase_nofile_limit(u64::MAX) {
+        Ok(limit) => tracing::info!("лимит открытых файлов поднят до {limit}"),
+        Err(e) => tracing::warn!("не удалось поднять лимит открытых файлов: {e}"),
+    });
+}
+
 impl Engine {
     /// Запускает сессию движка.
     pub async fn start(config: EngineConfig) -> Result<Self> {
+        raise_fd_limit();
+
         std::fs::create_dir_all(&config.download_dir).map_err(|e| Error::Start(e.to_string()))?;
         std::fs::create_dir_all(&config.state_dir).map_err(|e| Error::Start(e.to_string()))?;
 
