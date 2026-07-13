@@ -7,7 +7,7 @@ use std::{
         Arc, RwLock,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use engine::{AddParams, Engine, Source};
@@ -18,12 +18,19 @@ use rutracker::models::{
 use crate::{
     config::{self, AppConfig},
     error::{Error, Result},
-    library::{self, FavoriteRecord, HistoryRecord, Library, now_unix},
-    models::{
-        AddOptions, AppStatus, DownloadItem, FavoriteItem, HistoryItem, TorrentFilesPreview,
-        TransferSummary,
+    library::{
+        self, ChangeEventRecord, FavoriteRecord, FavoriteSnapshot, HistoryRecord, Library, now_unix,
     },
+    models::{
+        AddOptions, AppStatus, CategoryItem, ChangeEventItem, DownloadItem, FavoriteItem,
+        FileChangeItem, FileVersionInfo, FolderItem, HistoryItem, MirrorStatus, PatchInfo,
+        TorrentFilesPreview, TransferSummary, VersionMatch,
+    },
+    tracked::{self, TrackedFile, TrackedVersions},
 };
+
+/// Таймаут проверки доступности зеркала.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Общий доступ к ядру приложения.
 pub type SharedCore = Arc<AppCore>;
@@ -36,6 +43,8 @@ pub struct AppCore {
     engine: tokio::sync::Mutex<Option<Engine>>,
     library: RwLock<Library>,
     api_running: AtomicBool,
+    /// Сериализует автоматическое переключение зеркала между запросами.
+    failover_lock: tokio::sync::Mutex<()>,
 }
 
 impl AppCore {
@@ -61,6 +70,7 @@ impl AppCore {
             engine: tokio::sync::Mutex::new(None),
             library: RwLock::new(library),
             api_running: AtomicBool::new(false),
+            failover_lock: tokio::sync::Mutex::new(()),
         }))
     }
 
@@ -198,8 +208,29 @@ impl AppCore {
             .await
     }
 
-    /// Выполняет операцию, при `NotAuthenticated` пытается войти и повторить.
+    /// Выполняет операцию с двумя уровнями восстановления: при
+    /// `NotAuthenticated` — вход и повтор; при недоступности зеркала —
+    /// автоматическое переключение на живое зеркало и повтор.
     async fn with_auth_retry<F, Fut, T>(&self, make: F) -> Result<T>
+    where
+        F: Fn(rutracker::Client) -> Fut,
+        Fut: std::future::Future<Output = std::result::Result<T, rutracker::Error>>,
+    {
+        let mirror_at_start = normalize_mirror(&self.config().rutracker.mirror);
+        match self.auth_call(&make).await {
+            Err(err) if self.mirror_failover_applies(&err) => {
+                if self.try_failover(&mirror_at_start).await {
+                    self.auth_call(&make).await
+                } else {
+                    Err(err)
+                }
+            }
+            other => other,
+        }
+    }
+
+    /// Одна попытка операции с авто-логином при протухшей сессии.
+    async fn auth_call<F, Fut, T>(&self, make: &F) -> Result<T>
     where
         F: Fn(rutracker::Client) -> Fut,
         Fut: std::future::Future<Output = std::result::Result<T, rutracker::Error>>,
@@ -212,6 +243,114 @@ impl AppCore {
             }
             other => other.map_err(Error::from_rutracker),
         }
+    }
+
+    /// Нужно ли пробовать сменить зеркало после этой ошибки.
+    fn mirror_failover_applies(&self, err: &Error) -> bool {
+        if !self.config().rutracker.auto_mirror {
+            return false;
+        }
+        matches!(err, Error::Rutracker(e) if e.is_mirror_unreachable())
+    }
+
+    // ── Зеркала и обход блокировок ──────────────────────────────────────
+
+    /// Проверяет доступность известных зеркал (и текущего) через прокси
+    /// из конфигурации. Порядок: текущее зеркало, затем остальные.
+    pub async fn check_mirrors(&self) -> Vec<MirrorStatus> {
+        let config = self.config();
+        let current = normalize_mirror(&config.rutracker.mirror);
+        let proxy = proxy_of(&config);
+
+        let mut candidates: Vec<String> = vec![current.clone()];
+        for mirror in rutracker::DEFAULT_MIRRORS {
+            let normalized = normalize_mirror(mirror);
+            if !candidates.contains(&normalized) {
+                candidates.push(normalized);
+            }
+        }
+
+        let mut set = tokio::task::JoinSet::new();
+        for (index, mirror) in candidates.iter().enumerate() {
+            let mirror = mirror.clone();
+            let proxy = proxy.clone();
+            set.spawn(async move {
+                let started = Instant::now();
+                let result = probe_mirror(&mirror, proxy).await;
+                (index, mirror, result, started.elapsed())
+            });
+        }
+
+        let mut statuses: Vec<(usize, MirrorStatus)> = Vec::with_capacity(candidates.len());
+        while let Some(joined) = set.join_next().await {
+            let Ok((index, mirror, result, elapsed)) = joined else {
+                continue;
+            };
+            let current_flag = mirror == current;
+            statuses.push((
+                index,
+                match result {
+                    Ok(()) => MirrorStatus {
+                        url: mirror,
+                        ok: true,
+                        latency_ms: Some(elapsed.as_millis() as u64),
+                        error: None,
+                        current: current_flag,
+                    },
+                    Err(e) => MirrorStatus {
+                        url: mirror,
+                        ok: false,
+                        latency_ms: None,
+                        error: Some(e.to_string()),
+                        current: current_flag,
+                    },
+                },
+            ));
+        }
+        statuses.sort_by_key(|(index, _)| *index);
+        statuses.into_iter().map(|(_, status)| status).collect()
+    }
+
+    /// Пытается уйти с отказавшего зеркала `failed_mirror` на живое.
+    /// Возвращает `true`, если стоит повторить операцию (зеркало сменилось).
+    async fn try_failover(&self, failed_mirror: &str) -> bool {
+        let _guard = self.failover_lock.lock().await;
+
+        let config = self.config();
+        let current = normalize_mirror(&config.rutracker.mirror);
+        let proxy = proxy_of(&config);
+
+        // Пока ждали замок, зеркало уже сменили (другой запрос или
+        // пользователь в настройках) — не перетираем чужой выбор, просто
+        // повторяем операцию с новым клиентом.
+        if current != failed_mirror {
+            return true;
+        }
+
+        // Текущее зеркало нарочно НЕ пробуем: при частичной блокировке
+        // (index.php отвечает, а нужный эндпоинт — нет) это заблокировало бы
+        // переключение навсегда.
+        for mirror in rutracker::DEFAULT_MIRRORS {
+            let candidate = normalize_mirror(mirror);
+            if candidate == current {
+                continue;
+            }
+            if probe_mirror(&candidate, proxy.clone()).await.is_err() {
+                continue;
+            }
+            let mut new_config = self.config();
+            new_config.rutracker.mirror = candidate.clone();
+            match self.update_config(new_config) {
+                Ok(()) => {
+                    tracing::info!("зеркало rutracker недоступно, переключено на {candidate}");
+                    return true;
+                }
+                Err(e) => {
+                    tracing::warn!("не удалось переключить зеркало на {candidate}: {e}");
+                }
+            }
+        }
+        false
     }
 
     // ── Торрент-движок ──────────────────────────────────────────────────
@@ -393,6 +532,16 @@ impl AppCore {
         Ok(hash)
     }
 
+    /// Скачивает `.torrent`-файл раздачи и сохраняет его по указанному пути.
+    /// Возвращает оригинальное имя файла с трекера (если он его сообщил).
+    pub async fn save_torrent_file(&self, topic_id: u64, path: String) -> Result<Option<String>> {
+        let file = self
+            .with_auth_retry(|client| async move { client.download_torrent(topic_id).await })
+            .await?;
+        std::fs::write(&path, &file.bytes)?;
+        Ok(file.filename)
+    }
+
     /// Добавляет торрент по magnet- или http-ссылке напрямую.
     pub async fn add_url(&self, url: String, options: AddOptions) -> Result<String> {
         let config = self.config();
@@ -452,8 +601,10 @@ impl AppCore {
             .is_favorite(topic_id)
     }
 
-    /// Добавляет раздачу в избранное (запоминает сигнатуру для детекта обновлений).
+    /// Добавляет раздачу в отслеживаемое (запоминает снимок для детекта
+    /// обновлений; при включённом отслеживании файлов — и версию файлов).
     pub async fn add_favorite(&self, topic_id: u64) -> Result<()> {
+        let config = self.config();
         let topic = self
             .with_auth_retry(|client| async move { client.topic(topic_id).await })
             .await?;
@@ -465,22 +616,72 @@ impl AppCore {
             last_checked: now,
             signature: topic_signature(&topic),
             has_update: false,
+            snapshot: topic_snapshot(&topic, config.favorites.track_description),
+            changes: Vec::new(),
+            history: Vec::new(),
         };
         self.library
             .write()
             .expect("library lock")
             .add_favorite(record);
         self.save_library();
+
+        // Базовая версия файлов — точка отсчёта для патчей (best-effort).
+        if config.favorites.track_files
+            && topic.has_torrent_file
+            && let Err(e) = self.record_file_version(topic_id).await
+        {
+            tracing::warn!("не удалось сохранить версию файлов раздачи {topic_id}: {e}");
+        }
         Ok(())
     }
 
-    /// Убирает раздачу из избранного.
+    /// Скачивает актуальный `.torrent` и фиксирует версию списка файлов.
+    /// Возвращает описание файловых изменений (если они есть).
+    async fn record_file_version(&self, topic_id: u64) -> Result<Option<String>> {
+        let file = self
+            .with_auth_retry(|client| async move { client.download_torrent(topic_id).await })
+            .await?;
+        let files: Vec<TrackedFile> = engine::torrent_files(&file.bytes)?
+            .into_iter()
+            .map(|f| TrackedFile {
+                path: f.path,
+                size: f.size,
+            })
+            .collect();
+
+        let mut versions = TrackedVersions::load(&self.app_dir, topic_id);
+        let previous = versions.versions.last().map(|v| v.files.clone());
+        if !versions.push_if_changed(now_unix(), files.clone()) {
+            return Ok(None);
+        }
+        versions.save(&self.app_dir, topic_id)?;
+
+        Ok(previous
+            .and_then(|prev| tracked::describe_file_diff(&tracked::diff_files(&prev, &files))))
+    }
+
+    /// Убирает раздачу из отслеживаемого (история изменений и версии файлов
+    /// удаляются — фронтенд предупреждает об этом пользователя).
     pub fn remove_favorite(&self, topic_id: u64) {
         self.library
             .write()
             .expect("library lock")
             .remove_favorite(topic_id);
+        TrackedVersions::remove(&self.app_dir, topic_id);
         self.save_library();
+    }
+
+    /// История изменений отслеживаемой раздачи.
+    pub fn favorite_history(&self, topic_id: u64) -> Vec<ChangeEventItem> {
+        self.library
+            .read()
+            .expect("library lock")
+            .favorites
+            .iter()
+            .find(|f| f.topic_id == topic_id)
+            .map(|f| f.history.iter().cloned().map(Into::into).collect())
+            .unwrap_or_default()
     }
 
     /// Сбрасывает отметку об обновлении избранной раздачи.
@@ -505,6 +706,7 @@ impl AppCore {
             .map(|f| f.topic_id)
             .collect();
 
+        let config = self.config();
         for id in ids {
             let Ok(topic) = self
                 .with_auth_retry(|client| async move { client.topic(id).await })
@@ -513,18 +715,406 @@ impl AppCore {
                 continue;
             };
             let signature = topic_signature(&topic);
+            let mut snapshot = topic_snapshot(&topic, config.favorites.track_description);
+
+            // Готовим сравнение по копии записи; сетевые операции (скачивание
+            // .torrent для версии файлов) — строго вне замка библиотеки.
+            let Some(old) = self
+                .library
+                .read()
+                .expect("library lock")
+                .favorites
+                .iter()
+                .find(|f| f.topic_id == id)
+                .cloned()
+            else {
+                continue;
+            };
+
+            // Временная пропажа данных со страницы (гость/сбой) — не
+            // обновление: сохраняем последние известные значения.
+            if snapshot.info_hash.is_none() {
+                snapshot.info_hash = old.snapshot.info_hash.clone();
+            }
+            if snapshot.description_hash.is_none() {
+                snapshot.description_hash = old.snapshot.description_hash.clone();
+            }
+
+            // Записи со старых версий не имеют снимка — заполняем его без
+            // пометки обновления, дальше сравниваем только сигнатуру.
+            let had_snapshot = old.snapshot != FavoriteSnapshot::default();
+            let mut changes = if had_snapshot {
+                describe_changes(&old.snapshot, &snapshot)
+            } else {
+                Vec::new()
+            };
+            let updated = old.signature != signature || !changes.is_empty();
+
+            // Файлы сверяются только при обнаруженном обновлении: скачивание
+            // .torrent на каждую проверку тратило бы дневной лимит rutracker.
+            if updated && config.favorites.track_files && topic.has_torrent_file {
+                match self.record_file_version(id).await {
+                    Ok(Some(diff)) => changes.push(diff),
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("версия файлов раздачи {id}: {e}"),
+                }
+            }
+
             let mut lib = self.library.write().expect("library lock");
             if let Some(fav) = lib.favorites.iter_mut().find(|f| f.topic_id == id) {
                 fav.last_checked = now_unix();
-                if fav.signature != signature {
-                    fav.signature = signature;
+                fav.signature = signature;
+                fav.snapshot = snapshot;
+                if updated {
+                    fav.changes = changes.clone();
                     fav.has_update = true;
+                    fav.title = topic.title.clone();
+                    fav.history.insert(
+                        0,
+                        ChangeEventRecord {
+                            at: now_unix(),
+                            changes,
+                        },
+                    );
+                    fav.history.truncate(library::HISTORY_CAP);
                 }
             }
         }
 
         self.save_library();
         Ok(self.favorites())
+    }
+
+    // ── Патчи отслеживаемых раздач ──────────────────────────────────────
+
+    /// Актуальный список файлов раздачи (скачивает свежий `.torrent`).
+    async fn current_torrent_files(&self, topic_id: u64) -> Result<Vec<TrackedFile>> {
+        let file = self
+            .with_auth_retry(|client| async move { client.download_torrent(topic_id).await })
+            .await?;
+        Ok(engine::torrent_files(&file.bytes)?
+            .into_iter()
+            .map(|f| TrackedFile {
+                path: f.path,
+                size: f.size,
+            })
+            .collect())
+    }
+
+    /// Сохранённые версии списков файлов раздачи (старые → новые).
+    pub fn tracked_versions(&self, topic_id: u64) -> Vec<FileVersionInfo> {
+        TrackedVersions::load(&self.app_dir, topic_id)
+            .versions
+            .iter()
+            .enumerate()
+            .map(|(index, v)| FileVersionInfo {
+                index,
+                at: v.at,
+                file_count: v.files.len(),
+                total_size: v.files.iter().map(|f| f.size).sum(),
+            })
+            .collect()
+    }
+
+    /// Патч: изменения файлов между версией пользователя и АКТУАЛЬНЫМ
+    /// `.torrent` раздачи (скачивается с трекера, чтобы индексы файлов
+    /// совпадали с тем, что реально будет скачиваться).
+    pub async fn compute_patch(&self, topic_id: u64, base_version: usize) -> Result<PatchInfo> {
+        let versions = TrackedVersions::load(&self.app_dir, topic_id);
+        let base = versions
+            .versions
+            .get(base_version)
+            .ok_or_else(|| Error::Config("версия не найдена".into()))?;
+
+        let current = self.current_torrent_files(topic_id).await?;
+        let changes = tracked::diff_files(&base.files, &current);
+        let download_size = changes
+            .iter()
+            .filter(|c| c.kind != tracked::FileChangeKind::Removed)
+            .map(|c| c.size)
+            .sum();
+
+        Ok(PatchInfo {
+            files: changes
+                .into_iter()
+                .map(|c| FileChangeItem {
+                    path: c.path,
+                    size: c.size,
+                    kind: match c.kind {
+                        tracked::FileChangeKind::Added => "added".to_owned(),
+                        tracked::FileChangeKind::Changed => "changed".to_owned(),
+                        tracked::FileChangeKind::Removed => "removed".to_owned(),
+                    },
+                })
+                .collect(),
+            download_size,
+            base_at: base.at,
+        })
+    }
+
+    /// Определяет версию раздачи по локальной папке пользователя: сравнивает
+    /// файлы папки (относительный путь + размер) с каждой сохранённой версией.
+    pub fn detect_version(&self, topic_id: u64, dir: String) -> Result<Vec<VersionMatch>> {
+        let local = tracked::scan_dir(std::path::Path::new(&dir))?;
+        if local.is_empty() {
+            return Err(Error::Config("в выбранной папке нет файлов".into()));
+        }
+        let versions = TrackedVersions::load(&self.app_dir, topic_id);
+        if versions.versions.is_empty() {
+            return Err(Error::Config(
+                "у раздачи нет сохранённых версий файлов".into(),
+            ));
+        }
+
+        let mut matches: Vec<VersionMatch> = versions
+            .versions
+            .iter()
+            .enumerate()
+            .map(|(version, v)| VersionMatch {
+                version,
+                at: v.at,
+                matched: tracked::match_score(&v.files, &local),
+                total: v.files.len(),
+            })
+            .collect();
+        // Лучшие совпадения — первыми (при равенстве очков — новее версия).
+        matches.sort_by(|a, b| b.matched.cmp(&a.matched).then(b.version.cmp(&a.version)));
+        Ok(matches)
+    }
+
+    /// Скачивает патч: добавляет актуальную раздачу в движок, выбрав только
+    /// файлы, изменившиеся относительно базовой версии пользователя.
+    pub async fn download_patch(
+        &self,
+        topic_id: u64,
+        base_version: usize,
+        options: AddOptions,
+    ) -> Result<String> {
+        let versions = TrackedVersions::load(&self.app_dir, topic_id);
+        let base = versions
+            .versions
+            .get(base_version)
+            .ok_or_else(|| Error::Config("версия не найдена".into()))?;
+
+        let file = self
+            .with_auth_retry(|client| async move { client.download_torrent(topic_id).await })
+            .await?;
+        let current = engine::torrent_files(&file.bytes)?;
+        let current_tracked: Vec<TrackedFile> = current
+            .iter()
+            .map(|f| TrackedFile {
+                path: f.path.clone(),
+                size: f.size,
+            })
+            .collect();
+
+        // Индексы файлов актуального торрента, которых не было (или которые
+        // изменились) относительно базовой версии.
+        let diff = tracked::diff_files(&base.files, &current_tracked);
+        let changed: std::collections::HashSet<&str> = diff
+            .iter()
+            .filter(|c| c.kind != tracked::FileChangeKind::Removed)
+            .map(|c| c.path.as_str())
+            .collect();
+        let only_files: Vec<usize> = current
+            .iter()
+            .filter(|f| changed.contains(f.path.as_str()))
+            .map(|f| f.index)
+            .collect();
+        if only_files.is_empty() {
+            return Err(Error::Config(
+                "изменённых файлов нет — патч не требуется".into(),
+            ));
+        }
+
+        let config = self.config();
+        let engine_handle = self.ensure_engine().await?;
+        let mut params = self.add_params(&config, &options);
+        params.only_files = Some(only_files);
+
+        let topic = self
+            .with_auth_retry(|client| async move { client.topic(topic_id).await })
+            .await?;
+        let hash = engine_handle
+            .add(Source::TorrentBytes(file.bytes), params)
+            .await
+            .map_err(Error::from)?;
+        self.record_history(topic_id, &topic.title, &hash);
+        Ok(hash)
+    }
+
+    // ── Папки и категории ───────────────────────────────────────────────
+
+    /// Пользовательские категории (при первом обращении создаются стандартные).
+    pub fn user_categories(&self) -> Vec<CategoryItem> {
+        let seeded = self
+            .library
+            .write()
+            .expect("library lock")
+            .seed_categories(|| uuid::Uuid::new_v4().simple().to_string());
+        if seeded {
+            self.save_library();
+        }
+        self.library
+            .read()
+            .expect("library lock")
+            .categories
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect()
+    }
+
+    /// Создаёт категорию.
+    pub fn add_user_category(
+        &self,
+        name: String,
+        color: String,
+        forum_ids: Vec<i64>,
+    ) -> Result<CategoryItem> {
+        let name = valid_name(name)?;
+        let record = library::CategoryRecord {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            name,
+            color,
+            forum_ids,
+        };
+        self.library
+            .write()
+            .expect("library lock")
+            .add_category(record.clone());
+        self.save_library();
+        Ok(record.into())
+    }
+
+    /// Обновляет категорию: имя, цвет, набор разделов rutracker.
+    pub fn update_user_category(
+        &self,
+        id: String,
+        name: String,
+        color: String,
+        forum_ids: Vec<i64>,
+    ) -> Result<()> {
+        let name = valid_name(name)?;
+        let found = self
+            .library
+            .write()
+            .expect("library lock")
+            .update_category(&id, name, color, forum_ids);
+        if !found {
+            return Err(Error::Config("категория не найдена".into()));
+        }
+        self.save_library();
+        Ok(())
+    }
+
+    /// Удаляет категорию (папки с ней остаются без категории).
+    pub fn remove_user_category(&self, id: String) {
+        self.library
+            .write()
+            .expect("library lock")
+            .remove_category(&id);
+        self.save_library();
+    }
+
+    /// Папки с раздачами (категории развёрнуты).
+    pub fn folders(&self) -> Vec<FolderItem> {
+        let lib = self.library.read().expect("library lock");
+        lib.folders
+            .iter()
+            .map(|folder| FolderItem {
+                id: folder.id.clone(),
+                name: folder.name.clone(),
+                category: folder
+                    .category_id
+                    .as_deref()
+                    .and_then(|id| lib.categories.iter().find(|c| c.id == id))
+                    .cloned()
+                    .map(Into::into),
+                topics: folder.topics.iter().cloned().map(Into::into).collect(),
+                created_at: folder.created_at,
+            })
+            .collect()
+    }
+
+    /// Создаёт папку.
+    pub fn add_folder(&self, name: String, category_id: Option<String>) -> Result<()> {
+        let name = valid_name(name)?;
+        let record = library::FolderRecord {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            name,
+            category_id: category_id.filter(|c| !c.is_empty()),
+            topics: Vec::new(),
+            created_at: now_unix(),
+        };
+        self.library
+            .write()
+            .expect("library lock")
+            .add_folder(record);
+        self.save_library();
+        Ok(())
+    }
+
+    /// Переименовывает папку / меняет её категорию.
+    pub fn update_folder(
+        &self,
+        id: String,
+        name: String,
+        category_id: Option<String>,
+    ) -> Result<()> {
+        let name = valid_name(name)?;
+        let found = self.library.write().expect("library lock").update_folder(
+            &id,
+            name,
+            category_id.filter(|c| !c.is_empty()),
+        );
+        if !found {
+            return Err(Error::Config("папка не найдена".into()));
+        }
+        self.save_library();
+        Ok(())
+    }
+
+    /// Удаляет папку.
+    pub fn remove_folder(&self, id: String) {
+        self.library
+            .write()
+            .expect("library lock")
+            .remove_folder(&id);
+        self.save_library();
+    }
+
+    /// Добавляет раздачу в папку.
+    pub fn add_topic_to_folder(
+        &self,
+        folder_id: String,
+        topic_id: u64,
+        title: String,
+    ) -> Result<()> {
+        let topic = library::FolderTopicRecord {
+            topic_id,
+            title,
+            added_at: now_unix(),
+        };
+        let found = self
+            .library
+            .write()
+            .expect("library lock")
+            .add_topic_to_folder(&folder_id, topic);
+        if !found {
+            return Err(Error::Config("папка не найдена".into()));
+        }
+        self.save_library();
+        Ok(())
+    }
+
+    /// Убирает раздачу из папки.
+    pub fn remove_topic_from_folder(&self, folder_id: String, topic_id: u64) {
+        self.library
+            .write()
+            .expect("library lock")
+            .remove_topic_from_folder(&folder_id, topic_id);
+        self.save_library();
     }
 
     /// История скачиваний.
@@ -633,6 +1223,97 @@ fn topic_signature(topic: &TopicPage) -> String {
     )
 }
 
+/// Снимок отслеживаемых полей раздачи.
+fn topic_snapshot(topic: &TopicPage, track_description: bool) -> FavoriteSnapshot {
+    FavoriteSnapshot {
+        title: topic.title.clone(),
+        size_bytes: topic.stats.size_bytes,
+        registered: topic.stats.registered.clone(),
+        info_hash: topic.magnet.as_deref().and_then(magnet_info_hash),
+        description_hash: track_description.then(|| {
+            sha1_smol::Sha1::from(topic.body_html.as_bytes())
+                .digest()
+                .to_string()
+        }),
+    }
+}
+
+/// info-hash из magnet-ссылки (`xt=urn:btih:HASH`).
+fn magnet_info_hash(magnet: &str) -> Option<String> {
+    let start = magnet.find("urn:btih:")? + "urn:btih:".len();
+    let hash: String = magnet[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect();
+    (!hash.is_empty()).then(|| hash.to_ascii_lowercase())
+}
+
+/// Человекочитаемое описание разницы между снимками раздачи.
+fn describe_changes(old: &FavoriteSnapshot, new: &FavoriteSnapshot) -> Vec<String> {
+    let mut changes = Vec::new();
+    // «Перезалит» — только при смене одного известного хэша на другой:
+    // появление/пропажа magnet сама по себе обновлением не считается.
+    if let (Some(before), Some(after)) = (&old.info_hash, &new.info_hash)
+        && before != after
+    {
+        changes.push("торрент перезалит".to_owned());
+    }
+    if old.size_bytes != new.size_bytes
+        && let (Some(before), Some(after)) = (old.size_bytes, new.size_bytes)
+    {
+        changes.push(format!(
+            "размер: {} → {}",
+            format_size(before),
+            format_size(after)
+        ));
+    }
+    if old.registered != new.registered
+        && let (Some(before), Some(after)) = (&old.registered, &new.registered)
+    {
+        changes.push(format!("дата регистрации: {before} → {after}"));
+    }
+    if old.title != new.title && !old.title.is_empty() {
+        changes.push(format!(
+            "название: «{}» → «{}»",
+            truncate_title(&old.title),
+            truncate_title(&new.title)
+        ));
+    }
+    if let (Some(before), Some(after)) = (&old.description_hash, &new.description_hash)
+        && before != after
+    {
+        changes.push("изменилось описание раздачи".to_owned());
+    }
+    changes
+}
+
+/// Укорачивает название для описания изменений.
+fn truncate_title(title: &str) -> String {
+    const MAX: usize = 60;
+    if title.chars().count() <= MAX {
+        title.to_owned()
+    } else {
+        let cut: String = title.chars().take(MAX).collect();
+        format!("{cut}…")
+    }
+}
+
+/// Размер в человекочитаемом виде (для описаний изменений).
+fn format_size(bytes: u64) -> String {
+    const UNITS: &[&str] = &["Б", "КБ", "МБ", "ГБ", "ТБ"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} Б")
+    } else {
+        format!("{value:.2} {}", UNITS[unit])
+    }
+}
+
 /// Сводит список торрентов в общую статистику передачи.
 fn summarize(torrents: &[engine::EngineTorrent]) -> TransferSummary {
     let mut summary = TransferSummary {
@@ -653,19 +1334,50 @@ fn build_rutracker_client(
     config: &AppConfig,
     app_dir: &std::path::Path,
 ) -> Result<rutracker::Client> {
-    let proxy = if config.rutracker.proxy.trim().is_empty() {
-        None
-    } else {
-        Some(config.rutracker.proxy.clone())
-    };
-
     rutracker::Client::builder()
         .base_url(config.rutracker.mirror.clone())
-        .proxy(proxy)
+        .proxy(proxy_of(config))
         .cookie_path(Some(config::cookies_file(app_dir)))
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(Error::from_rutracker)
+}
+
+/// Прокси из конфигурации (пустая строка — напрямую).
+fn proxy_of(config: &AppConfig) -> Option<String> {
+    let proxy = config.rutracker.proxy.trim();
+    (!proxy.is_empty()).then(|| proxy.to_owned())
+}
+
+/// Приводит адрес зеркала к сравнимому виду: без хвостового `/` и суффикса
+/// `/forum` (клиент добавляет его сам — см. `normalize_base` в rutracker).
+fn normalize_mirror(mirror: &str) -> String {
+    let trimmed = mirror.trim().trim_end_matches('/');
+    trimmed.strip_suffix("/forum").unwrap_or(trimmed).to_owned()
+}
+
+/// Проверяет доступность зеркала одноразовым клиентом (без файла куков,
+/// чтобы не трогать сохранённую сессию) через тот же прокси.
+async fn probe_mirror(mirror: &str, proxy: Option<String>) -> rutracker::Result<()> {
+    rutracker::Client::builder()
+        .base_url(mirror)
+        .proxy(proxy)
+        .timeout(PROBE_TIMEOUT)
+        .build()?
+        .probe()
+        .await
+}
+
+/// Валидирует пользовательское имя (папки/категории): непустое, разумной длины.
+fn valid_name(name: String) -> Result<String> {
+    let name = name.trim().to_owned();
+    if name.is_empty() {
+        return Err(Error::Config("имя не может быть пустым".into()));
+    }
+    if name.chars().count() > 100 {
+        return Err(Error::Config("имя слишком длинное".into()));
+    }
+    Ok(name)
 }
 
 /// Генерирует случайный Bearer-токен для внешнего API.
@@ -737,10 +1449,11 @@ mod tests {
                 id: 1,
                 name: forum.into(),
             }],
+            author: None,
             magnet: None,
             has_torrent_file: true,
             stats: Default::default(),
-            body: Vec::new(),
+            body_html: String::new(),
         }
     }
 

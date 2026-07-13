@@ -139,6 +139,10 @@ pub struct FavoriteItem {
     pub last_checked: i64,
     /// Обнаружено обновление раздачи с последнего просмотра.
     pub has_update: bool,
+    /// Что именно изменилось (человекочитаемо; пусто, если детали неизвестны).
+    pub changes: Vec<String>,
+    /// Сколько событий в истории изменений.
+    pub history_count: usize,
 }
 
 impl From<crate::library::FavoriteRecord> for FavoriteItem {
@@ -149,8 +153,73 @@ impl From<crate::library::FavoriteRecord> for FavoriteItem {
             added_at: r.added_at,
             last_checked: r.last_checked,
             has_update: r.has_update,
+            changes: r.changes,
+            history_count: r.history.len(),
         }
     }
+}
+
+/// Событие истории изменений отслеживаемой раздачи.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeEventItem {
+    pub at: i64,
+    pub changes: Vec<String>,
+}
+
+impl From<crate::library::ChangeEventRecord> for ChangeEventItem {
+    fn from(r: crate::library::ChangeEventRecord) -> Self {
+        Self {
+            at: r.at,
+            changes: r.changes,
+        }
+    }
+}
+
+/// Версия списка файлов отслеживаемой раздачи (сводка).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FileVersionInfo {
+    /// Индекс версии (0 — самая старая из сохранённых).
+    pub index: usize,
+    /// Когда зафиксирована (unix).
+    pub at: i64,
+    pub file_count: usize,
+    pub total_size: u64,
+}
+
+/// Изменение файла в патче.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FileChangeItem {
+    pub path: String,
+    pub size: u64,
+    /// added | changed | removed.
+    pub kind: String,
+}
+
+/// Патч между версией пользователя и актуальной раздачей.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchInfo {
+    /// Изменённые файлы (added/changed скачиваются, removed — информация).
+    pub files: Vec<FileChangeItem>,
+    /// Суммарный размер скачивания (added + changed).
+    pub download_size: u64,
+    /// Дата базовой версии (unix).
+    pub base_at: i64,
+}
+
+/// Совпадение локальной папки с версией раздачи.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionMatch {
+    pub version: usize,
+    pub at: i64,
+    /// Сколько файлов версии совпало с локальными (путь + размер).
+    pub matched: usize,
+    /// Всего файлов в версии.
+    pub total: usize,
 }
 
 /// Запись истории скачиваний (проекция для UI/API).
@@ -184,6 +253,75 @@ pub struct AppStatus {
     pub username: Option<String>,
     /// Число активных загрузок.
     pub active_downloads: u32,
+}
+
+/// Пользовательская категория.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CategoryItem {
+    pub id: String,
+    pub name: String,
+    /// Цвет метки (hex).
+    pub color: String,
+    /// Разделы rutracker, объединяемые категорией (для фильтров поиска).
+    pub forum_ids: Vec<i64>,
+}
+
+impl From<crate::library::CategoryRecord> for CategoryItem {
+    fn from(r: crate::library::CategoryRecord) -> Self {
+        Self {
+            id: r.id,
+            name: r.name,
+            color: r.color,
+            forum_ids: r.forum_ids,
+        }
+    }
+}
+
+/// Раздача внутри папки.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderTopicItem {
+    pub topic_id: u64,
+    pub title: String,
+    pub added_at: i64,
+}
+
+impl From<crate::library::FolderTopicRecord> for FolderTopicItem {
+    fn from(r: crate::library::FolderTopicRecord) -> Self {
+        Self {
+            topic_id: r.topic_id,
+            title: r.title,
+            added_at: r.added_at,
+        }
+    }
+}
+
+/// Пользовательская папка с раздачами (категория уже развёрнута).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderItem {
+    pub id: String,
+    pub name: String,
+    pub category: Option<CategoryItem>,
+    pub topics: Vec<FolderTopicItem>,
+    pub created_at: i64,
+}
+
+/// Результат проверки доступности зеркала rutracker.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MirrorStatus {
+    /// Базовый адрес зеркала.
+    pub url: String,
+    /// Зеркало отвечает и выглядит как rutracker.
+    pub ok: bool,
+    /// Задержка ответа, мс (для доступных зеркал).
+    pub latency_ms: Option<u64>,
+    /// Текст ошибки (для недоступных зеркал).
+    pub error: Option<String>,
+    /// Это зеркало используется сейчас.
+    pub current: bool,
 }
 
 #[cfg(test)]

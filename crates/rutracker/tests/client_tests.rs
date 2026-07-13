@@ -223,7 +223,7 @@ async fn topic_page_is_parsed() {
     assert!(topic.title.contains("Linux Mint"));
     assert!(topic.magnet.is_some());
     assert!(topic.has_torrent_file);
-    assert!(!topic.body.is_empty());
+    assert!(!topic.body_html.is_empty());
 }
 
 #[tokio::test]

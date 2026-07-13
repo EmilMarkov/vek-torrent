@@ -6,6 +6,6 @@
 pub mod categories;
 pub mod common;
 pub mod login;
+pub mod sanitize;
 pub mod search;
-pub mod text;
 pub mod topic;

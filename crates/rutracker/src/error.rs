@@ -47,4 +47,25 @@ impl Error {
     pub(crate) fn parse(context: impl Into<String>) -> Self {
         Self::Parse(context.into())
     }
+
+    /// Похожа ли ошибка на недоступность или блокировку зеркала —
+    /// кандидат на автоматическое переключение на другое зеркало.
+    pub fn is_mirror_unreachable(&self) -> bool {
+        match self {
+            Self::Http(e) => {
+                e.is_connect()
+                    // Обрыв при чтении тела и redirect-петли — типичные
+                    // проявления DPI-блокировок наряду с connect/timeout.
+                    || e.is_timeout()
+                    || e.is_body()
+                    || e.is_decode()
+                    || e.is_redirect()
+                    || matches!(
+                        e.status(),
+                        Some(s) if s.as_u16() == 403 || s.as_u16() == 451 || s.is_server_error()
+                    )
+            }
+            _ => false,
+        }
+    }
 }

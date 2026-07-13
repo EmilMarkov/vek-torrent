@@ -203,76 +203,18 @@ pub struct TopicPage {
     pub title: String,
     /// Путь по разделам (хлебные крошки).
     pub forum_path: Vec<ForumRef>,
+    /// Автор раздачи (ник автора первого поста).
+    #[serde(default)]
+    pub author: Option<String>,
     /// Magnet-ссылка (доступна и без логина).
     pub magnet: Option<String>,
     /// Присутствует ли ссылка на `.torrent` (требует логина).
     pub has_torrent_file: bool,
     pub stats: TorrentStats,
-    /// Содержимое первого поста в виде блоков.
-    pub body: Vec<ContentBlock>,
-}
-
-/// Блок содержимого раздачи.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ContentBlock {
-    Paragraph {
-        inlines: Vec<Inline>,
-    },
-    Image {
-        src: String,
-    },
-    Spoiler {
-        title: String,
-        #[schema(no_recursion)]
-        blocks: Vec<ContentBlock>,
-    },
-    Quote {
-        author: Option<String>,
-        #[schema(no_recursion)]
-        blocks: Vec<ContentBlock>,
-    },
-    Code {
-        text: String,
-    },
-    List {
-        ordered: bool,
-        #[schema(no_recursion)]
-        items: Vec<Vec<ContentBlock>>,
-    },
-    Hr,
-}
-
-/// Строчный элемент внутри параграфа.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum Inline {
-    Text {
-        text: String,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        bold: bool,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        italic: bool,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        underline: bool,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        strike: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        color: Option<String>,
-    },
-    Link {
-        href: String,
-        text: String,
-        /// Идентификатор темы, если ссылка ведёт на раздачу rutracker.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        topic_id: Option<u64>,
-    },
-    /// Изображение в потоке текста (флаг, иконка, скриншот) — сохраняет исходный
-    /// размер и не разрывает строку.
-    Image {
-        src: String,
-    },
-    Break,
+    /// Санированный HTML первого поста в родной разметке rutracker
+    /// (см. [`crate::parse::sanitize`]): авторское оформление сохраняется,
+    /// опасные теги/атрибуты вырезаны, ссылки абсолютные.
+    pub body_html: String,
 }
 
 /// Группа форумов в дереве категорий.

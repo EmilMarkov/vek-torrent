@@ -33,6 +33,7 @@
 html,
 body {
   height: 100%;
+  overscroll-behavior: none;
 }
 
 body {
@@ -40,8 +41,14 @@ body {
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  overscroll-behavior: none;
   user-select: none;
+}
+
+/* Без «протягивания» (rubber-band) на тачпадах: обычная прокрутка внутри
+ * контейнеров работает, но эластичный отскок и цепочка прокрутки к корню
+ * отключены у всех скролл-контейнеров. */
+* {
+  overscroll-behavior: none;
 }
 
 /* Текст внутри контента раздач должен выделяться. */
@@ -67,4 +74,356 @@ body {
 }
 *::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/*
+ * ── Пост раздачи в родной разметке rutracker ─────────────────────────────
+ * Тёмная реплика оригинальных стилей трекера (метрики и селекторы повторяют
+ * их CSS), чтобы авторское оформление постов выглядело как на rutracker.
+ * HTML приходит санированным — см. crates/rutracker/src/parse/sanitize.rs.
+ */
+.post-body {
+  font-size: 0.85rem;
+  line-height: 18px;
+  color: color-mix(in srgb, var(--color-text) 92%, transparent);
+  overflow-wrap: break-word;
+}
+/* Флоаты (postImgAligned, post-box-*) не должны вытекать из поста. */
+.post-body::after {
+  content: "";
+  display: block;
+  clear: both;
+}
+
+/* Строчные BB-стили. */
+.post-body .post-b {
+  font-weight: 600;
+}
+.post-body .post-i {
+  font-style: italic;
+}
+.post-body .post-u {
+  text-decoration: underline;
+}
+.post-body .post-s {
+  text-decoration: line-through;
+}
+.post-body .post-br {
+  display: block;
+  line-height: 12px;
+}
+.post-body .post-align {
+  display: block;
+  margin: 8px auto;
+}
+.post-body .post-indent {
+  margin-left: 2em;
+}
+
+/* Разделители. */
+.post-body hr {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  margin: 8px 0;
+  clear: none;
+}
+.post-body .post-hr {
+  display: flex;
+  margin: 8px auto;
+}
+.post-body .post-hr hr {
+  flex: 1;
+}
+
+/* Ссылки. */
+.post-body a {
+  color: var(--color-info);
+}
+.post-body a:hover {
+  text-decoration: underline;
+}
+.post-body a.postLink {
+  text-decoration: none;
+  font-weight: 600;
+}
+/* Magnet дублируется кнопкой в шапке страницы. */
+.post-body a.magnet-link {
+  display: none;
+}
+
+/* Изображения (после подстановки var.postImg → img в PostBody). */
+.post-body img {
+  max-width: 100%;
+  height: auto;
+  cursor: zoom-in;
+}
+.post-body img.postImg {
+  margin: 2px 2px 0 0;
+  border-radius: 4px;
+}
+.post-body img.postImgAligned {
+  margin: 4px 4px 2px;
+  max-width: 33%;
+}
+.post-body img.img-left {
+  float: left;
+  clear: left;
+  margin-right: 12px;
+}
+.post-body img.img-right {
+  float: right;
+  clear: right;
+  margin-left: 12px;
+}
+.post-body img.postImg10 {
+  max-width: 10vw;
+}
+.post-body img.postImg15 {
+  max-width: 15vw;
+}
+.post-body img.postImg20 {
+  max-width: 20vw;
+}
+.post-body img.postImg25 {
+  max-width: 25vw;
+}
+.post-body img.postImg30 {
+  max-width: 30vw;
+}
+.post-body img.postImg40 {
+  max-width: 40vw;
+}
+.post-body img.postImg50 {
+  max-width: 50vw;
+}
+.post-body img.postImg60 {
+  max-width: 60vw;
+}
+.post-body img.postImg1em {
+  height: 1em;
+  vertical-align: text-bottom;
+  margin-bottom: 0.1em;
+  cursor: default;
+}
+.post-body img.smile {
+  vertical-align: -2px;
+  cursor: default;
+}
+
+/* Спойлеры: .sp-wrap > .sp-head + .sp-body; раскрытие классом .open. */
+.post-body .sp-wrap {
+  width: 98%;
+  clear: both;
+  margin: 8px auto;
+  border: 1px solid var(--color-border);
+  border-left-width: 2px;
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  overflow: hidden;
+}
+.post-body .sp-wrap .sp-wrap {
+  margin: 2px auto 4px;
+}
+.post-body .sp-head {
+  padding: 4px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+}
+.post-body .sp-head::before {
+  content: "";
+  display: inline-block;
+  margin-right: 7px;
+  border: 4px solid transparent;
+  border-left: 6px solid var(--color-muted);
+  transition: transform 0.15s ease;
+  transform-origin: 3px 50%;
+}
+.post-body .sp-wrap.open > .sp-head::before {
+  transform: rotate(90deg);
+}
+.post-body .sp-head:hover {
+  background: var(--color-surface-3);
+}
+.post-body .sp-body {
+  display: none;
+  border-top: 1px solid var(--color-border);
+  padding: 6px 10px;
+  background: var(--color-surface);
+  font-weight: normal;
+}
+.post-body .sp-wrap.open > .sp-body {
+  display: block;
+}
+
+/* Цитаты: .q-wrap > .q-head + .q. */
+.post-body .q-wrap {
+  width: 98%;
+  clear: both;
+  margin: 8px auto;
+}
+.post-body .q-wrap .q-wrap {
+  margin: 2px auto 4px;
+  width: 100%;
+}
+.post-body .q-head {
+  padding: 0 1px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.post-body .q {
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-accent);
+  border-radius: 0 6px 6px 0;
+  padding: 2px 8px;
+  background: var(--color-surface-2);
+  max-height: 350px;
+  overflow: auto;
+}
+.post-body .q .q {
+  background: var(--color-surface-3);
+  max-height: none;
+  overflow: visible;
+}
+.post-body .q .q .q {
+  background: var(--color-surface-2);
+}
+
+/* Код: .c-wrap > .c-head + .c-body. */
+.post-body .c-wrap {
+  width: 98%;
+  clear: both;
+  margin: 8px auto;
+}
+.post-body .c-head {
+  padding: 0 1px;
+  font-size: 11px;
+  color: var(--color-muted);
+}
+.post-body .c-body {
+  border: 1px solid var(--color-border);
+  border-left-width: 2px;
+  border-radius: 0 6px 6px 0;
+  padding: 2px 8px;
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-success);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.post-body pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+/* Inline-box из BB [box]. */
+.post-body .post-box {
+  display: inline-block;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  line-height: 150%;
+  margin: 1px 5px;
+  padding: 0 8px 1px;
+}
+.post-body .post-box-default {
+  display: inline-block;
+  vertical-align: top;
+}
+.post-body .post-box-left {
+  float: left;
+}
+.post-body .post-box-right {
+  float: right;
+}
+.post-body .post-box-center {
+  display: table;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Списки. */
+.post-body ul,
+.post-body ol {
+  margin: 8px 0 8px 1em;
+  line-height: 1.4;
+  list-style: disc;
+}
+.post-body ol {
+  list-style: decimal;
+}
+.post-body li {
+  margin: 0 4px 1px 24px;
+}
+.post-body li li {
+  margin-left: 14px;
+}
+.post-body .post-ul .post-ul {
+  list-style: circle;
+}
+.post-body .post-ul .post-ul .post-ul {
+  list-style: square;
+}
+
+/* Таблицы авторской вёрстки (метаданные рядом с постером и т.п.). */
+.post-body table {
+  border-collapse: collapse;
+  max-width: 100%;
+}
+.post-body td,
+.post-body th {
+  padding: 2px 6px;
+  vertical-align: top;
+}
+
+/* Заголовки. */
+.post-body h1,
+.post-body h2,
+.post-body h3,
+.post-body h4,
+.post-body h5,
+.post-body h6 {
+  font-weight: 700;
+  margin: 10px 0 6px;
+  line-height: 1.3;
+}
+.post-body h1 {
+  font-size: 1.35rem;
+}
+.post-body h2 {
+  font-size: 1.2rem;
+}
+.post-body h3 {
+  font-size: 1.05rem;
+}
+
+/* Семейства шрифтов BB [font] — как на rutracker. */
+.post-body .post-font-serif1 {
+  font-family: Georgia, "URW Bookman L", serif;
+}
+.post-body .post-font-serif2 {
+  font-family: "Palatino Linotype", Palatino, "URW Palladio L", serif;
+}
+.post-body .post-font-sans1 {
+  font-family: Arial, "Liberation Sans", sans-serif;
+}
+.post-body .post-font-sans2 {
+  font-family: "Trebuchet MS", "Nimbus Sans L", Tahoma, sans-serif;
+}
+.post-body .post-font-sans3 {
+  font-family: "Segoe UI", "Gill Sans", "FreeSans", Tahoma, sans-serif;
+}
+.post-body .post-font-mono1 {
+  font-family: "Lucida Console", monaco, "DejaVu Sans Mono", monospace;
+}
+.post-body .post-font-mono2 {
+  font-family: Consolas, "Andale Mono", "Liberation Mono", monospace;
+}
+.post-body .post-font-cursive1 {
+  font-family: "Comic Sans MS", "Comic Sans", sans-serif;
+}
+.post-body .post-font-impact {
+  font-family: Impact, "URW Bookman L", Georgia, serif;
 }

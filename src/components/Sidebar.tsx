@@ -1,7 +1,7 @@
 // Левая навигация: только иконки, названия — во всплывающих подсказках.
 
 import { clsx } from "clsx";
-import { Download, Heart, History, Search, Settings } from "lucide-react";
+import { Download, Eye, Folder, History, Search, Settings, Tags } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { useDownloadsStore } from "@/hooks/useDownloads";
@@ -11,7 +11,9 @@ import { useAppStore, useCurrentRoute, type MainView } from "@/store";
 const NAV: { view: MainView; label: string; icon: LucideIcon }[] = [
   { view: "search", label: "Поиск", icon: Search },
   { view: "downloads", label: "Загрузки", icon: Download },
-  { view: "favorites", label: "Избранное", icon: Heart },
+  { view: "favorites", label: "Отслеживаемое", icon: Eye },
+  { view: "folders", label: "Папки", icon: Folder },
+  { view: "categories", label: "Категории", icon: Tags },
   { view: "history", label: "История", icon: History },
   { view: "settings", label: "Настройки", icon: Settings },
 ];

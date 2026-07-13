@@ -1,22 +1,32 @@
 // Страница поиска: строка запроса (lazy-search), клиентские фильтры в правом
-// сайдбаре, виртуализированный список результатов с догрузкой.
+// сайдбаре, таблица результатов с серверной сортировкой и пагинацией.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Search as SearchIcon, SlidersHorizontal, TriangleAlert } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Search as SearchIcon,
+  SlidersHorizontal,
+  TriangleAlert,
+} from "lucide-react";
+import { clsx } from "clsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { FiltersSidebar } from "@/components/FiltersSidebar";
 import { BackButton } from "@/components/PageHeader";
-import { ResultRow } from "@/components/ResultRow";
-import { Button, EmptyState, Input, Spinner } from "@/components/ui";
+import { SearchHistoryDropdown } from "@/components/SearchHistory";
+import { RESULT_COLS, ResultRow } from "@/components/ResultRow";
+import { Button, EmptyState, Input, Pagination, Spinner } from "@/components/ui";
 import { useSearch } from "@/hooks/useSearch";
-import { applyFilters, hasActiveFilters } from "@/lib/filters";
+import { applyFilters, hasActiveFilters, type ClientFilters } from "@/lib/filters";
+import type { SortField, SortOrder } from "@/lib/types";
 
 export function SearchPage() {
   const search = useSearch();
   const filters = search.filters;
   const setFilters = search.setFilters;
   const [showFilters, setShowFilters] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const visible = useMemo(() => applyFilters(search.items, filters), [search.items, filters]);
 
@@ -45,15 +55,13 @@ export function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Догрузка при приближении к концу списка. Работает и при активных
-  // клиентских фильтрах: подтягиваем следующие страницы до серверного предела.
   const virtualItems = virtualizer.getVirtualItems();
-  useEffect(() => {
-    if (!search.hasMore) return;
-    const last = virtualItems.at(-1);
-    const nearEnd = last ? last.index >= visible.length - 5 : visible.length === 0;
-    if (nearEnd) search.loadMore();
-  }, [virtualItems, visible.length, search]);
+
+  // Переход по страницам: скроллим список к началу.
+  const goToPage = (page: number) => {
+    search.setPage(page);
+    scrollRef.current?.scrollTo({ top: 0 });
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -65,10 +73,20 @@ export function SearchPage() {
             <Input
               value={search.query}
               onChange={(e) => search.setQuery(e.target.value)}
+              onFocus={() => setHistoryOpen(true)}
+              onBlur={() => setHistoryOpen(false)}
+              onKeyDown={(e) => e.key === "Escape" && setHistoryOpen(false)}
               placeholder="Поиск раздач на rutracker…"
               className="pl-9"
               autoFocus
             />
+            {historyOpen && (
+              <SearchHistoryDropdown
+                query={search.query}
+                onPick={search.setQuery}
+                onClose={() => setHistoryOpen(false)}
+              />
+            )}
           </div>
           <Button
             variant={showFilters || hasActiveFilters(filters) ? "primary" : "secondary"}
@@ -79,58 +97,138 @@ export function SearchPage() {
           </Button>
         </div>
 
-        {search.hasSearched && !search.loading && (
+        {search.hasSearched && !search.loading && !search.error && (
           <div className="flex items-center gap-2 text-xs text-faint">
             <span>
-              Показано {visible.length} из {search.totalFound}
-              {search.totalFound >= 500 ? "+" : ""} найденных
+              Найдено {search.totalFound}
+              {search.totalFound >= 500 ? "+" : ""} · страница {search.page} из {search.pageCount} ·
+              показано {visible.length}
             </span>
-            {search.loadingMore && <Spinner className="h-3 w-3" />}
           </div>
         )}
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto">
-          {search.loading ? (
-            <div className="flex h-full items-center justify-center">
-              <Spinner className="h-6 w-6" />
-            </div>
-          ) : search.error ? (
-            <SearchError message={search.error.message} onRetry={search.retry} />
-          ) : !search.hasSearched ? (
-            <EmptyState
-              icon={<SearchIcon className="h-10 w-10" />}
-              title="Начните поиск"
-              hint="Введите название фильма, игры, дистрибутива или программы. Результаты можно мгновенно уточнять фильтрами справа без повторного запроса."
-            />
-          ) : visible.length === 0 ? (
-            <EmptyState
-              icon={<SearchIcon className="h-10 w-10" />}
-              title="Ничего не найдено"
-              hint={
-                hasActiveFilters(filters)
-                  ? "Попробуйте ослабить фильтры."
-                  : "Попробуйте изменить запрос."
-              }
-            />
-          ) : (
-            <div className="relative" style={{ height: `${virtualizer.getTotalSize()}px` }}>
-              {virtualItems.map((row) => (
-                <div
-                  key={visible[row.index].topic_id}
-                  className="absolute top-0 left-0 w-full px-3"
-                  style={{ height: `${row.size}px`, transform: `translateY(${row.start}px)` }}
-                >
-                  <ResultRow result={visible[row.index]} />
-                </div>
-              ))}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+            {search.error ? (
+              <SearchError message={search.error.message} onRetry={search.retry} />
+            ) : !search.hasSearched && !search.loading ? (
+              <EmptyState
+                icon={<SearchIcon className="h-10 w-10" />}
+                title="Начните поиск"
+                hint="Введите название фильма, игры, дистрибутива или программы. Результаты можно мгновенно уточнять фильтрами справа без повторного запроса."
+              />
+            ) : (
+              // Шапка не размонтируется во время загрузки и при пустой
+              // фильтрации: сортировку можно менять в любой момент.
+              <>
+                <TableHeader sort={search.sort} order={search.order} onSort={search.setSort} />
+                {search.loading ? (
+                  <div className="flex justify-center py-16">
+                    <Spinner className="h-6 w-6" />
+                  </div>
+                ) : visible.length === 0 ? (
+                  <EmptyState
+                    icon={<SearchIcon className="h-10 w-10" />}
+                    title="Ничего не найдено"
+                    hint={
+                      hasActiveFilters(filters)
+                        ? search.pageCount > 1
+                          ? "Фильтры действуют в пределах текущей страницы — посмотрите другие страницы или ослабьте фильтры."
+                          : "Попробуйте ослабить фильтры."
+                        : "Попробуйте изменить запрос."
+                    }
+                  />
+                ) : (
+                  <div className="relative" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+                    {virtualItems.map((row) => (
+                      <div
+                        key={visible[row.index].topic_id}
+                        className="absolute top-0 left-0 w-full px-3"
+                        style={{ height: `${row.size}px`, transform: `translateY(${row.start}px)` }}
+                      >
+                        <ResultRow
+                          result={visible[row.index]}
+                          onPatchFilters={(patch: Partial<ClientFilters>) =>
+                            setFilters({ ...filters, ...patch })
+                          }
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {search.hasSearched && search.pageCount > 1 && (
+            <div className="border-t border-border px-4 py-2">
+              <Pagination
+                page={search.page}
+                pageCount={search.pageCount}
+                onChange={goToPage}
+                disabled={search.loading}
+              />
             </div>
           )}
         </div>
 
         {showFilters && <FiltersSidebar filters={filters} onChange={setFilters} />}
       </div>
+    </div>
+  );
+}
+
+/** Порядок по умолчанию при первом клике на столбец. */
+function defaultOrder(field: SortField): SortOrder {
+  return field === "title" ? "asc" : "desc";
+}
+
+/** Шапка таблицы результатов: клик по столбцу — серверная сортировка. */
+function TableHeader({
+  sort,
+  order,
+  onSort,
+}: {
+  sort: SortField;
+  order: SortOrder;
+  onSort: (sort: SortField, order: SortOrder) => void;
+}) {
+  const cell = (label: string, field: SortField, className?: string) => {
+    const active = sort === field;
+    const toggle = () =>
+      onSort(field, active ? (order === "desc" ? "asc" : "desc") : defaultOrder(field));
+    return (
+      <button
+        onClick={toggle}
+        className={clsx(
+          "flex shrink-0 items-center gap-0.5 hover:text-text",
+          active ? "text-text" : "text-faint",
+          className,
+        )}
+        title="Сортировать (повторный клик меняет направление)"
+      >
+        <span className="truncate">{label}</span>
+        {active &&
+          (order === "desc" ? (
+            <ArrowDown className="h-3 w-3 shrink-0" />
+          ) : (
+            <ArrowUp className="h-3 w-3 shrink-0" />
+          ))}
+      </button>
+    );
+  };
+
+  return (
+    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-bg px-3 py-2 text-[11px] font-medium">
+      <div className="min-w-0 flex-1">{cell("Название", "title")}</div>
+      {cell("Размер", "size", clsx(RESULT_COLS.size, "justify-end"))}
+      {cell("Сиды", "seeders", clsx(RESULT_COLS.seeders, "justify-end"))}
+      {cell("Личи", "leechers", clsx(RESULT_COLS.leechers, "justify-end"))}
+      {cell("Скачали", "downloads", clsx(RESULT_COLS.downloads, "justify-end"))}
+      {cell("Добавлена", "registered", clsx(RESULT_COLS.date, "justify-end"))}
+      <div className={clsx(RESULT_COLS.actions, "shrink-0")} />
     </div>
   );
 }

@@ -227,6 +227,21 @@ impl Client {
         Ok(parse::login::session_info(&html))
     }
 
+    /// Проверяет, что зеркало отвечает и выглядит как rutracker.
+    ///
+    /// Отличает живое зеркало от заглушки провайдера при блокировке:
+    /// заглушка не содержит ни формы логина, ни имени вошедшего пользователя.
+    pub async fn probe(&self) -> Result<()> {
+        let html = self.get_html(self.url("index.php")?).await?;
+        if parse::login::looks_like_rutracker(&html) {
+            Ok(())
+        } else {
+            Err(Error::Parse(
+                "страница не похожа на rutracker (заглушка блокировки?)".into(),
+            ))
+        }
+    }
+
     /// Локальный выход: очистка куков и их файла.
     pub fn logout(&self) -> Result<()> {
         {
@@ -259,36 +274,56 @@ impl Client {
     }
 
     /// Поиск по трекеру. Требует активной сессии.
+    ///
+    /// Страницы внутри серверной сессии (`search_id`) читаются GET-запросом;
+    /// новая сессия создаётся POST-ом. Если запрошена страница с ненулевым
+    /// смещением без токена сессии (или сессия на сервере истекла), POST
+    /// создаёт новую сессию, после чего нужная страница дочитывается по GET.
     pub async fn search(&self, req: &SearchRequest) -> Result<SearchPage> {
-        let html = match (&req.search_id, req.offset) {
-            (Some(search_id), offset) if offset > 0 => {
-                let mut url = self.url("tracker.php")?;
-                url.query_pairs_mut()
-                    .append_pair("search_id", search_id)
-                    .append_pair("start", &offset.to_string());
-                self.get_html(url).await?
-            }
-            _ => {
-                let mut pairs: Vec<(String, String)> = vec![
-                    ("nm".to_owned(), req.query.clone()),
-                    ("o".to_owned(), req.sort.code().to_string()),
-                    ("s".to_owned(), req.order.code().to_string()),
-                ];
-                if let Some(author) = req.author.as_deref().filter(|a| !a.trim().is_empty()) {
-                    pairs.push(("pn".to_owned(), author.trim().to_owned()));
-                }
-                for forum in &req.forums {
-                    pairs.push(("f[]".to_owned(), forum.to_string()));
-                }
-                let body = cp1251_form_urlencode(&pairs);
-                self.post_form_html(self.url("tracker.php")?, body).await?
-            }
-        };
+        if let Some(search_id) = &req.search_id {
+            let page = self.search_session_page(search_id, req.offset).await?;
+            return Ok(page);
+        }
 
+        // Новая серверная сессия поиска (первая страница).
+        let mut pairs: Vec<(String, String)> = vec![
+            ("nm".to_owned(), req.query.clone()),
+            ("o".to_owned(), req.sort.code().to_string()),
+            ("s".to_owned(), req.order.code().to_string()),
+        ];
+        if let Some(author) = req.author.as_deref().filter(|a| !a.trim().is_empty()) {
+            pairs.push(("pn".to_owned(), author.trim().to_owned()));
+        }
+        for forum in &req.forums {
+            pairs.push(("f[]".to_owned(), forum.to_string()));
+        }
+        let body = cp1251_form_urlencode(&pairs);
+        let html = self.post_form_html(self.url("tracker.php")?, body).await?;
         if parse::login::is_login_page(&html) {
             return Err(Error::NotAuthenticated);
         }
-        parse::search::parse_search_page(&html, req.offset)
+        let first = parse::search::parse_search_page(&html, 0)?;
+
+        // Нужна не первая страница — дочитываем её в свежесозданной сессии.
+        if req.offset > 0
+            && let Some(search_id) = &first.search_id
+        {
+            return self.search_session_page(search_id, req.offset).await;
+        }
+        Ok(first)
+    }
+
+    /// Страница результатов существующей серверной сессии поиска.
+    async fn search_session_page(&self, search_id: &str, offset: u32) -> Result<SearchPage> {
+        let mut url = self.url("tracker.php")?;
+        url.query_pairs_mut()
+            .append_pair("search_id", search_id)
+            .append_pair("start", &offset.to_string());
+        let html = self.get_html(url).await?;
+        if parse::login::is_login_page(&html) {
+            return Err(Error::NotAuthenticated);
+        }
+        parse::search::parse_search_page(&html, offset)
     }
 
     /// Загружает и разбирает страницу раздачи.

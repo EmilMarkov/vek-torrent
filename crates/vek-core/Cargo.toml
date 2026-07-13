@@ -10,6 +10,7 @@ authors.workspace = true
 engine = { workspace = true }
 rutracker = { workspace = true }
 serde = { workspace = true }
+sha1_smol = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

@@ -30,6 +30,12 @@
       "desktop": {
         "schemes": ["vektorrent"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYxRUQ0NzM0OTkyQThCMTYKUldRV2l5cVpORWZ0WVNIUDBNN3Z5MkZaeWdyZmpBdm9ZT21WRVYzb2IvbkdlMzhoZllwOEdzNDEK",
+      "endpoints": [
+        "https://github.com/EmilMarkov/vek-torrent/releases/latest/download/latest.json"
+      ]
     }
   },
   "bundle": {
@@ -43,6 +49,7 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
   }
 }

@@ -1,7 +1,7 @@
 // Небольшие переиспользуемые UI-примитивы в тёмной теме.
 
 import { clsx } from "clsx";
-import { Check, ChevronDown, Loader2 } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 
@@ -48,6 +48,11 @@ export function Button({
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
+      // macOS (WKWebView) подставляет «умные» кавычки/тире и автокоррекцию —
+      // в полях поиска и путей это только мешает.
+      autoCorrect="off"
+      autoCapitalize="none"
+      spellCheck={false}
       className={clsx(
         "w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text",
         "placeholder:text-faint focus:border-accent/70 focus:outline-none focus:ring-2 focus:ring-accent/25",
@@ -211,5 +216,78 @@ export function Badge({
     >
       {children}
     </span>
+  );
+}
+
+/** Номера страниц с многоточиями вокруг текущей: 1 … 4 5 6 … 12. */
+function pageNumbers(page: number, pageCount: number): (number | "gap")[] {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
+  const pages = new Set<number>([1, pageCount, page - 1, page, page + 1]);
+  const sorted = [...pages].filter((p) => p >= 1 && p <= pageCount).sort((a, b) => a - b);
+  const out: (number | "gap")[] = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (prev && p - prev > 1) out.push("gap");
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+
+/** Пагинатор: стрелки + номера страниц с многоточиями. */
+export function Pagination({
+  page,
+  pageCount,
+  onChange,
+  disabled = false,
+}: {
+  page: number;
+  pageCount: number;
+  onChange: (page: number) => void;
+  disabled?: boolean;
+}) {
+  if (pageCount <= 1) return null;
+  const nav = (p: number) => () => onChange(Math.min(Math.max(p, 1), pageCount));
+
+  return (
+    <div className="flex items-center justify-center gap-1">
+      <button
+        onClick={nav(page - 1)}
+        disabled={disabled || page <= 1}
+        title="Предыдущая страница"
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      {pageNumbers(page, pageCount).map((p, i) =>
+        p === "gap" ? (
+          <span key={`gap-${i}`} className="px-1 text-xs text-faint">
+            …
+          </span>
+        ) : (
+          <button
+            key={p}
+            onClick={nav(p)}
+            disabled={disabled}
+            className={clsx(
+              "h-8 min-w-8 rounded-lg px-2 text-sm",
+              p === page
+                ? "bg-accent-soft font-medium text-accent"
+                : "text-muted hover:bg-surface-2 hover:text-text",
+            )}
+          >
+            {p}
+          </button>
+        ),
+      )}
+      <button
+        onClick={nav(page + 1)}
+        disabled={disabled || page >= pageCount}
+        title="Следующая страница"
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </div>
   );
 }

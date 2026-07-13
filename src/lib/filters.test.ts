@@ -101,19 +101,15 @@ describe("applyFilters", () => {
     expect(out.map((r) => r.topic_id)).toEqual([3]);
   });
 
-  it("сортирует по сидам по убыванию", () => {
-    const out = applyFilters(items, { ...DEFAULT_FILTERS, sortKey: "seeders", sortDesc: true });
-    expect(out.map((r) => r.seeders)).toEqual([100, 50, 5]);
-  });
-
-  it("сортирует по размеру по возрастанию", () => {
-    const out = applyFilters(items, { ...DEFAULT_FILTERS, sortKey: "size", sortDesc: false });
-    expect(out.map((r) => r.topic_id)).toEqual([3, 1, 2]);
+  it("сохраняет серверный порядок результатов", () => {
+    // Сортировка — серверная; фильтры не должны переупорядочивать выдачу.
+    const out = applyFilters(items, { ...DEFAULT_FILTERS, refine: "-beta" });
+    expect(out.map((r) => r.topic_id)).toEqual([1, 3]);
   });
 
   it("не мутирует исходный массив", () => {
     const snapshot = items.map((r) => r.topic_id);
-    applyFilters(items, { ...DEFAULT_FILTERS, sortKey: "seeders", sortDesc: true });
+    applyFilters(items, { ...DEFAULT_FILTERS, refine: "linux" });
     expect(items.map((r) => r.topic_id)).toEqual(snapshot);
   });
 

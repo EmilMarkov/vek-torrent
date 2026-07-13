@@ -8,12 +8,15 @@ import { Toaster } from "@/components/Toaster";
 import { useDeepLink } from "@/hooks/useDeepLink";
 import { useDownloadsListener } from "@/hooks/useDownloads";
 import { useFavoritesListener } from "@/hooks/useLibrary";
+import { CategoriesPage } from "@/pages/CategoriesPage";
 import { DownloadsPage } from "@/pages/DownloadsPage";
 import { FavoritesPage } from "@/pages/FavoritesPage";
+import { FoldersPage } from "@/pages/FoldersPage";
 import { HistoryPage } from "@/pages/HistoryPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TopicView } from "@/pages/TopicView";
+import { TrackedHistoryPage } from "@/pages/TrackedHistoryPage";
 import { useCurrentRoute } from "@/store";
 
 export default function App() {
@@ -33,10 +36,16 @@ export default function App() {
         <main className="min-h-0 flex-1">
           {route.kind === "topic" ? (
             <TopicView topicId={route.topicId} />
+          ) : route.kind === "tracked-history" ? (
+            <TrackedHistoryPage topicId={route.topicId} title={route.title} />
           ) : route.kind === "downloads" ? (
             <DownloadsPage />
           ) : route.kind === "favorites" ? (
             <FavoritesPage />
+          ) : route.kind === "folders" ? (
+            <FoldersPage />
+          ) : route.kind === "categories" ? (
+            <CategoriesPage />
           ) : route.kind === "history" ? (
             <HistoryPage />
           ) : route.kind === "settings" ? (

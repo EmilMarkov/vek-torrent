@@ -7,17 +7,24 @@ import type {
   AppConfig,
   AppStatus,
   CaptchaAnswer,
+  CategoryItem,
+  ChangeEventItem,
   DownloadItem,
   FavoriteItem,
+  FileVersionInfo,
+  FolderItem,
   ForumGroup,
   HistoryItem,
   LoginOutcome,
+  MirrorStatus,
+  PatchInfo,
   SearchPage,
   SearchRequest,
   SessionInfo,
   TopicPage,
   TorrentFilesPreview,
   TransferSummary,
+  VersionMatch,
 } from "./types";
 
 /** Ошибка команды с машиночитаемым кодом. */
@@ -55,6 +62,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 export const api = {
   getConfig: () => call<AppConfig>("get_config"),
   setConfig: (config: AppConfig) => call<void>("set_config", { config }),
+  checkMirrors: () => call<MirrorStatus[]>("check_mirrors"),
 
   sessionStatus: () => call<SessionInfo>("session_status"),
   login: (captcha?: CaptchaAnswer) => call<LoginOutcome>("login", { captcha: captcha ?? null }),
@@ -71,9 +79,29 @@ export const api = {
   addFromTopic: (topicId: number, options: AddOptions) =>
     call<string>("add_from_topic", { topicId, options }),
   addUrl: (url: string, options: AddOptions) => call<string>("add_url", { url, options }),
+  saveTorrent: (topicId: number, path: string) =>
+    call<string | null>("save_torrent", { topicId, path }),
   pause: (hashes: string[]) => call<void>("pause", { hashes }),
   resume: (hashes: string[]) => call<void>("resume", { hashes }),
   remove: (hashes: string[], deleteFiles: boolean) => call<void>("remove", { hashes, deleteFiles }),
+
+  userCategories: () => call<CategoryItem[]>("user_categories"),
+  addUserCategory: (name: string, color: string, forumIds: number[]) =>
+    call<CategoryItem>("add_user_category", { name, color, forumIds }),
+  updateUserCategory: (id: string, name: string, color: string, forumIds: number[]) =>
+    call<void>("update_user_category", { id, name, color, forumIds }),
+  removeUserCategory: (id: string) => call<void>("remove_user_category", { id }),
+
+  folders: () => call<FolderItem[]>("folders"),
+  addFolder: (name: string, categoryId: string | null) =>
+    call<void>("add_folder", { name, categoryId }),
+  updateFolder: (id: string, name: string, categoryId: string | null) =>
+    call<void>("update_folder", { id, name, categoryId }),
+  removeFolder: (id: string) => call<void>("remove_folder", { id }),
+  addTopicToFolder: (folderId: string, topicId: number, title: string) =>
+    call<void>("add_topic_to_folder", { folderId, topicId, title }),
+  removeTopicFromFolder: (folderId: string, topicId: number) =>
+    call<void>("remove_topic_from_folder", { folderId, topicId }),
 
   favorites: () => call<FavoriteItem[]>("favorites"),
   isFavorite: (topicId: number) => call<boolean>("is_favorite", { topicId }),
@@ -81,6 +109,14 @@ export const api = {
   removeFavorite: (topicId: number) => call<void>("remove_favorite", { topicId }),
   clearFavoriteUpdate: (topicId: number) => call<void>("clear_favorite_update", { topicId }),
   checkFavorites: () => call<FavoriteItem[]>("check_favorites"),
+  favoriteHistory: (topicId: number) => call<ChangeEventItem[]>("favorite_history", { topicId }),
+  trackedVersions: (topicId: number) => call<FileVersionInfo[]>("tracked_versions", { topicId }),
+  computePatch: (topicId: number, baseVersion: number) =>
+    call<PatchInfo>("compute_patch", { topicId, baseVersion }),
+  detectVersion: (topicId: number, dir: string) =>
+    call<VersionMatch[]>("detect_version", { topicId, dir }),
+  downloadPatch: (topicId: number, baseVersion: number, options: AddOptions) =>
+    call<string>("download_patch", { topicId, baseVersion, options }),
   history: () => call<HistoryItem[]>("history"),
   removeHistory: (topicId: number) => call<void>("remove_history", { topicId }),
   clearHistory: () => call<void>("clear_history"),

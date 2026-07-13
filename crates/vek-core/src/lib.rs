@@ -11,6 +11,7 @@ pub mod config;
 pub mod error;
 pub mod library;
 pub mod models;
+pub mod tracked;
 
 pub use app::{AppCore, SharedCore};
 pub use config::AppConfig;

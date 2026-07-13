@@ -27,6 +27,15 @@ pub fn is_login_page(html: &str) -> bool {
     doc.select(&LOGIN_INPUT).next().is_some() && doc.select(&LOGGED_USERNAME).next().is_none()
 }
 
+/// Похожа ли страница на rutracker вообще (форма логина или имя вошедшего).
+///
+/// Используется для проверки зеркал: заглушка провайдера при блокировке
+/// не содержит ни того, ни другого.
+pub fn looks_like_rutracker(html: &str) -> bool {
+    let doc = Html::parse_document(html);
+    doc.select(&LOGIN_INPUT).next().is_some() || doc.select(&LOGGED_USERNAME).next().is_some()
+}
+
 /// Состояние сессии по любой странице форума.
 pub fn session_info(html: &str) -> SessionInfo {
     let doc = Html::parse_document(html);

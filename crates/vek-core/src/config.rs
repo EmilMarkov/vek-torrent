@@ -17,6 +17,32 @@ pub struct AppConfig {
     pub engine: EngineConfig,
     pub api: ApiConfig,
     pub downloads: DownloadsConfig,
+    pub favorites: FavoritesConfig,
+}
+
+/// Настройки отслеживаемых раздач.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FavoritesConfig {
+    /// Сбрасывать метку обновления при открытии раздачи из отслеживаемого.
+    /// При `false` метка снимается только специальной кнопкой.
+    pub auto_clear_update: bool,
+    /// Отслеживать изменения текста описания раздачи.
+    pub track_description: bool,
+    /// Отслеживать изменения файлов раздачи: при обнаружении обновления
+    /// скачивается `.torrent` и сохраняется версия списка файлов
+    /// (нужно для патчей).
+    pub track_files: bool,
+}
+
+impl Default for FavoritesConfig {
+    fn default() -> Self {
+        Self {
+            auto_clear_update: true,
+            track_description: true,
+            track_files: true,
+        }
+    }
 }
 
 /// Настройки доступа к rutracker.
@@ -30,6 +56,8 @@ pub struct RutrackerConfig {
     pub mirror: String,
     /// Прокси (`socks5://…`, `http://…`) либо пусто — напрямую.
     pub proxy: String,
+    /// Автоматически переключаться на доступное зеркало при блокировке.
+    pub auto_mirror: bool,
 }
 
 impl Default for RutrackerConfig {
@@ -39,6 +67,7 @@ impl Default for RutrackerConfig {
             password: String::new(),
             mirror: rutracker::DEFAULT_MIRRORS[0].to_owned(),
             proxy: String::new(),
+            auto_mirror: true,
         }
     }
 }

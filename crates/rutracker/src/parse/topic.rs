@@ -11,7 +11,7 @@ use crate::{
     error::Error,
     models::{ForumRef, TopicPage, TorrentStats},
     parse::common::{collapse_whitespace, element_text, first_int, parse_size_text, query_param},
-    parse::text::blocks_from_post_body,
+    parse::sanitize::sanitize_post_body,
 };
 
 static TITLE: LazyLock<Selector> =
@@ -24,6 +24,8 @@ static DL_LINK: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse(r#"a[href*="dl.php"]"#).expect("selector"));
 static POST_BODY: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("div.post_body").expect("selector"));
+static AUTHOR: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("p.nick-author, p.nick").expect("selector"));
 static SEED: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("span.seed b, span.seed").expect("selector"));
 static LEECH: LazyLock<Selector> =
@@ -76,11 +78,18 @@ pub fn parse_topic_page(html: &str, id: u64, base: &Url) -> Result<TopicPage> {
 
     let has_torrent_file = doc.select(&DL_LINK).next().is_some();
 
-    let body = doc
+    let body_html = doc
         .select(&POST_BODY)
         .next()
-        .map(|el| blocks_from_post_body(el, base))
+        .map(|el| sanitize_post_body(&el.inner_html(), base))
         .unwrap_or_default();
+
+    // Автор первого поста (ник рядом с телом раздачи).
+    let author = doc
+        .select(&AUTHOR)
+        .next()
+        .map(element_text)
+        .filter(|a| !a.is_empty());
 
     let page_text = collapse_whitespace(&doc.root_element().text().collect::<String>());
 
@@ -108,17 +117,17 @@ pub fn parse_topic_page(html: &str, id: u64, base: &Url) -> Result<TopicPage> {
         id,
         title,
         forum_path,
+        author,
         magnet,
         has_torrent_file,
         stats,
-        body,
+        body_html,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ContentBlock;
 
     const FIXTURE: &str = include_str!("../../tests/fixtures/topic_page.html");
 
@@ -135,6 +144,7 @@ mod tests {
         assert_eq!(topic.forum_path[0].id, 2093);
         assert_eq!(topic.forum_path[1].id, 1379);
 
+        assert_eq!(topic.author.as_deref(), Some("mint_keeper"));
         assert!(topic.magnet.as_deref().unwrap().starts_with("magnet:?xt="));
         assert!(topic.has_torrent_file);
 
@@ -144,18 +154,13 @@ mod tests {
         assert_eq!(topic.stats.completed, Some(2404));
         assert_eq!(topic.stats.registered.as_deref(), Some("10-Сен-24"));
 
-        // Тело: параграф, спойлер со скриншотами, код.
-        assert!(!topic.body.is_empty());
-        let has_spoiler = topic
-            .body
-            .iter()
-            .any(|b| matches!(b, ContentBlock::Spoiler { title, .. } if title == "Скриншоты"));
-        let has_code = topic
-            .body
-            .iter()
-            .any(|b| matches!(b, ContentBlock::Code { .. }));
-        assert!(has_spoiler);
-        assert!(has_code);
+        // Тело — санированный HTML в родной разметке rutracker: спойлер со
+        // скриншотами и блок кода сохранены, скрипты вырезаны.
+        assert!(!topic.body_html.is_empty());
+        assert!(topic.body_html.contains("sp-wrap"));
+        assert!(topic.body_html.contains("Скриншоты"));
+        assert!(topic.body_html.contains("c-body"));
+        assert!(!topic.body_html.contains("<script"));
     }
 
     #[test]

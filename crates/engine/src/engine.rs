@@ -222,6 +222,32 @@ impl Engine {
     }
 }
 
+/// Список файлов из содержимого `.torrent`-файла — без сети и без запуска
+/// сессии (используется отслеживанием версий раздач).
+pub fn torrent_files(bytes: &[u8]) -> Result<Vec<EngineFile>> {
+    let torrent = librqbit::torrent_from_bytes::<librqbit::ByteBuf>(bytes)
+        .map_err(|e| Error::InvalidSource(format!("не удалось разобрать .torrent: {e}")))?;
+    let details = torrent
+        .info
+        .iter_file_details()
+        .map_err(|e| Error::Backend(e.to_string()))?;
+
+    let mut files = Vec::new();
+    for (index, detail) in details.enumerate() {
+        let path = detail
+            .filename
+            .to_vec()
+            .map_err(|e| Error::Backend(e.to_string()))?
+            .join("/");
+        files.push(EngineFile {
+            index,
+            path,
+            size: detail.len,
+        });
+    }
+    Ok(files)
+}
+
 /// Скорость (байт/с) из сглаженной оценки librqbit (в MiB/с).
 fn to_bps(mibps: f64) -> u64 {
     (mibps * 1024.0 * 1024.0).max(0.0) as u64

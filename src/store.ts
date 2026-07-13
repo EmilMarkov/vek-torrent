@@ -6,15 +6,19 @@
 
 import { create } from "zustand";
 
-export type MainView = "search" | "downloads" | "favorites" | "history" | "settings";
+export type MainView =
+  "search" | "downloads" | "favorites" | "folders" | "categories" | "history" | "settings";
 
-export type Route = { kind: MainView } | { kind: "topic"; topicId: number };
+export type Route =
+  | { kind: MainView }
+  | { kind: "topic"; topicId: number }
+  | { kind: "tracked-history"; topicId: number; title: string };
 
 const MAX_STACK = 50;
 
 function sameRoute(a: Route, b: Route): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.kind === "topic" && b.kind === "topic") return a.topicId === b.topicId;
+  if ("topicId" in a && "topicId" in b) return a.topicId === b.topicId;
   return true;
 }
 

@@ -60,30 +60,6 @@ export interface ForumGroup {
   forums: ForumEntry[];
 }
 
-// Блоки содержимого раздачи.
-export type Inline =
-  | {
-      type: "text";
-      text: string;
-      bold?: boolean;
-      italic?: boolean;
-      underline?: boolean;
-      strike?: boolean;
-      color?: string | null;
-    }
-  | { type: "link"; href: string; text: string; topic_id?: number | null }
-  | { type: "image"; src: string }
-  | { type: "break" };
-
-export type ContentBlock =
-  | { type: "paragraph"; inlines: Inline[] }
-  | { type: "image"; src: string }
-  | { type: "spoiler"; title: string; blocks: ContentBlock[] }
-  | { type: "quote"; author: string | null; blocks: ContentBlock[] }
-  | { type: "code"; text: string }
-  | { type: "list"; ordered: boolean; items: ContentBlock[][] }
-  | { type: "hr" };
-
 export interface TorrentStats {
   size_bytes: number | null;
   seeders: number | null;
@@ -96,10 +72,13 @@ export interface TopicPage {
   id: number;
   title: string;
   forum_path: ForumRef[];
+  /** Автор раздачи (ник автора первого поста). */
+  author: string | null;
   magnet: string | null;
   has_torrent_file: boolean;
   stats: TorrentStats;
-  body: ContentBlock[];
+  /** Санированный HTML первого поста в родной разметке rutracker. */
+  body_html: string;
 }
 
 export type DownloadState = "downloading" | "seeding" | "paused" | "checking" | "error" | "unknown";
@@ -162,6 +141,70 @@ export interface FavoriteItem {
   addedAt: number;
   lastChecked: number;
   hasUpdate: boolean;
+  /** Что именно изменилось (пусто, если детали неизвестны). */
+  changes: string[];
+  /** Сколько событий в истории изменений. */
+  historyCount: number;
+}
+
+/** Событие истории изменений отслеживаемой раздачи. */
+export interface ChangeEventItem {
+  at: number;
+  changes: string[];
+}
+
+/** Версия списка файлов раздачи (сводка). */
+export interface FileVersionInfo {
+  index: number;
+  at: number;
+  fileCount: number;
+  totalSize: number;
+}
+
+/** Изменение файла в патче. */
+export interface FileChangeItem {
+  path: string;
+  size: number;
+  kind: "added" | "changed" | "removed";
+}
+
+/** Патч между версией пользователя и актуальной раздачей. */
+export interface PatchInfo {
+  files: FileChangeItem[];
+  downloadSize: number;
+  baseAt: number;
+}
+
+/** Совпадение локальной папки с версией раздачи. */
+export interface VersionMatch {
+  version: number;
+  at: number;
+  matched: number;
+  total: number;
+}
+
+/** Пользовательская категория: метка для папок + набор разделов rutracker. */
+export interface CategoryItem {
+  id: string;
+  name: string;
+  color: string;
+  /** Разделы rutracker, объединяемые категорией (для фильтров поиска). */
+  forumIds: number[];
+}
+
+export interface FolderTopicItem {
+  topicId: number;
+  title: string;
+  addedAt: number;
+}
+
+/** Пользовательская папка с раздачами. */
+export interface FolderItem {
+  id: string;
+  name: string;
+  category: CategoryItem | null;
+  topics: FolderTopicItem[];
+  createdAt: number;
 }
 
 export interface HistoryItem {
@@ -196,6 +239,16 @@ export interface RutrackerConfig {
   password: string;
   mirror: string;
   proxy: string;
+  auto_mirror: boolean;
+}
+
+/** Результат проверки доступности зеркала rutracker. */
+export interface MirrorStatus {
+  url: string;
+  ok: boolean;
+  latencyMs: number | null;
+  error: string | null;
+  current: boolean;
 }
 
 export interface EngineConfig {
@@ -223,11 +276,21 @@ export interface DownloadsConfig {
   category_paths: CategoryPaths;
 }
 
+export interface FavoritesConfig {
+  /** Сбрасывать метку обновления при открытии раздачи из отслеживаемого. */
+  auto_clear_update: boolean;
+  /** Отслеживать изменения текста описания. */
+  track_description: boolean;
+  /** Отслеживать изменения файлов (версии для патчей). */
+  track_files: boolean;
+}
+
 export interface AppConfig {
   rutracker: RutrackerConfig;
   engine: EngineConfig;
   api: ApiConfig;
   downloads: DownloadsConfig;
+  favorites: FavoritesConfig;
 }
 
 export interface CommandError {

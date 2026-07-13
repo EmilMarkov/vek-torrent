@@ -3,8 +3,6 @@
 
 import type { ForumGroup, SearchResult } from "./types";
 
-export type ResultSortKey = "relevance" | "seeders" | "size" | "downloads" | "date" | "title";
-
 export interface ClientFilters {
   /**
    * Строка «живого» уточнения. Поддерживает слова и словосочетания в кавычках,
@@ -20,8 +18,6 @@ export interface ClientFilters {
   onlyApproved: boolean;
   /** Ограничение по форумам (id); пусто — без ограничения. */
   forumIds: number[];
-  sortKey: ResultSortKey;
-  sortDesc: boolean;
 }
 
 export const DEFAULT_FILTERS: ClientFilters = {
@@ -32,8 +28,6 @@ export const DEFAULT_FILTERS: ClientFilters = {
   minSeeders: null,
   onlyApproved: false,
   forumIds: [],
-  sortKey: "relevance",
-  sortDesc: true,
 };
 
 interface ParsedRefine {
@@ -88,30 +82,18 @@ function matchesRefine(title: string, parsed: ParsedRefine): boolean {
   );
 }
 
-function compare(a: SearchResult, b: SearchResult, key: ResultSortKey): number {
-  switch (key) {
-    case "seeders":
-      return a.seeders - b.seeders;
-    case "size":
-      return a.size_bytes - b.size_bytes;
-    case "downloads":
-      return a.downloads - b.downloads;
-    case "date":
-      return a.added_unix - b.added_unix;
-    case "title":
-      return a.title.localeCompare(b.title, "ru");
-    case "relevance":
-      return 0;
-  }
-}
-
-/** Применяет фильтры и сортировку к списку результатов (чистая функция). */
+/**
+ * Применяет фильтры к списку результатов (чистая функция).
+ *
+ * Порядок результатов не меняется: сортировка — серверная (rutracker),
+ * управляется кликами по заголовкам таблицы и приходит уже отсортированной.
+ */
 export function applyFilters(items: SearchResult[], filters: ClientFilters): SearchResult[] {
   const parsed = parseRefine(filters.refine);
   const forumSet = new Set(filters.forumIds);
   const author = filters.author.trim().toLowerCase();
 
-  const filtered = items.filter((item) => {
+  return items.filter((item) => {
     if (!matchesRefine(item.title, parsed)) return false;
     if (author && !(item.author ?? "").toLowerCase().includes(author)) return false;
     if (filters.minSizeBytes !== null && item.size_bytes < filters.minSizeBytes) return false;
@@ -121,22 +103,6 @@ export function applyFilters(items: SearchResult[], filters: ClientFilters): Sea
     if (forumSet.size > 0 && (item.forum === null || !forumSet.has(item.forum.id))) return false;
     return true;
   });
-
-  if (filters.sortKey !== "relevance") {
-    const dir = filters.sortDesc ? -1 : 1;
-    // Стабильная сортировка: сохраняем исходный порядок при равенстве.
-    filtered
-      .map((item, index) => ({ item, index }))
-      .sort((a, b) => {
-        const c = compare(a.item, b.item, filters.sortKey);
-        return c !== 0 ? c * dir : a.index - b.index;
-      })
-      .forEach(({ item }, i) => {
-        filtered[i] = item;
-      });
-  }
-
-  return filtered;
 }
 
 /** Есть ли активные (непустые) фильтры — для индикации в UI. */
@@ -181,6 +147,22 @@ export function forumIdsForCategory(groups: ForumGroup[], category: GeneralCateg
     }
   }
   return ids;
+}
+
+/**
+ * Эффективные разделы пользовательской категории: заданные явно, а для
+ * стандартных категорий без настройки — эвристика по ключевым словам
+ * (как раньше вели себя встроенные «Фильмы/Книги/Музыка/Игры»).
+ */
+export function effectiveCategoryForumIds(
+  groups: ForumGroup[],
+  category: { name: string; forumIds: number[] },
+): number[] {
+  if (category.forumIds.length > 0) return category.forumIds;
+  const general = GENERAL_CATEGORIES.find(
+    (g) => g.label.toLowerCase() === category.name.trim().toLowerCase(),
+  );
+  return general ? forumIdsForCategory(groups, general) : [];
 }
 
 /** Парсит человеко-размер («1.5 гб», «700мб») в байты для полей фильтра. */

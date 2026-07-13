@@ -1,15 +1,19 @@
-// Кнопка «Поделиться»: ссылка rutracker и внутренняя ссылка на приложение.
+// Кнопка «Поделиться»: ссылки rutracker/приложения, magnet-ссылка.
 
-import { Copy, ExternalLink, Link2, Share2 } from "lucide-react";
+import { Copy, Link2, Magnet, Share2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { toast } from "@/components/Toaster";
 import { Button } from "@/components/ui";
+import { rutrackerTopicUrl } from "@/lib/rutracker";
 
-const RUTRACKER_BASE = "https://rutracker.org/forum/viewtopic.php?t=";
+interface Props {
+  topicId: number;
+  /** Magnet-ссылка раздачи (пункт копирования показывается при наличии). */
+  magnet?: string | null;
+}
 
-export function ShareButton({ topicId }: { topicId: number }) {
+export function ShareButton({ topicId, magnet }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -27,7 +31,7 @@ export function ShareButton({ topicId }: { topicId: number }) {
     };
   }, [open]);
 
-  const rutrackerUrl = `${RUTRACKER_BASE}${topicId}`;
+  const rutrackerUrl = rutrackerTopicUrl(topicId);
   const appUrl = `vektorrent://topic/${topicId}`;
 
   const copy = async (text: string, label: string) => {
@@ -62,16 +66,15 @@ export function ShareButton({ topicId }: { topicId: number }) {
             <Link2 className="h-4 w-4 text-faint" />
             Копировать ссылку приложения
           </button>
-          <button
-            onClick={() => {
-              void openUrl(rutrackerUrl);
-              setOpen(false);
-            }}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-text hover:bg-surface-2"
-          >
-            <ExternalLink className="h-4 w-4 text-faint" />
-            Открыть на rutracker
-          </button>
+          {magnet && (
+            <button
+              onClick={() => copy(magnet, "Magnet-ссылка")}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-text hover:bg-surface-2"
+            >
+              <Magnet className="h-4 w-4 text-faint" />
+              Копировать magnet-ссылку
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -6,8 +6,9 @@ use tauri::State;
 
 use vek_core::AppConfig;
 use vek_core::models::{
-    AddOptions, AppStatus, DownloadItem, FavoriteItem, HistoryItem, TorrentFilesPreview,
-    TransferSummary,
+    AddOptions, AppStatus, CategoryItem, ChangeEventItem, DownloadItem, FavoriteItem,
+    FileVersionInfo, FolderItem, HistoryItem, MirrorStatus, PatchInfo, TorrentFilesPreview,
+    TransferSummary, VersionMatch,
 };
 use vek_core::rutracker_models::{
     CaptchaAnswer, CaptchaChallenge, ForumGroup, SearchPage, SearchRequest, SessionInfo, TopicPage,
@@ -74,6 +75,12 @@ pub async fn login(
 pub async fn logout(state: State<'_, AppState>) -> CommandResult<()> {
     state.core.logout()?;
     Ok(())
+}
+
+/// Проверяет доступность зеркал rutracker через текущий прокси.
+#[tauri::command]
+pub async fn check_mirrors(state: State<'_, AppState>) -> CommandResult<Vec<MirrorStatus>> {
+    Ok(state.core.check_mirrors().await)
 }
 
 #[tauri::command]
@@ -143,6 +150,16 @@ pub async fn add_url(
     Ok(state.core.add_url(url, options).await?)
 }
 
+/// Сохраняет `.torrent`-файл раздачи по пути, выбранному пользователем.
+#[tauri::command]
+pub async fn save_torrent(
+    state: State<'_, AppState>,
+    topic_id: u64,
+    path: String,
+) -> CommandResult<Option<String>> {
+    Ok(state.core.save_torrent_file(topic_id, path).await?)
+}
+
 #[tauri::command]
 pub async fn pause(state: State<'_, AppState>, hashes: Vec<String>) -> CommandResult<()> {
     state.core.pause(hashes).await?;
@@ -196,6 +213,141 @@ pub fn clear_favorite_update(state: State<'_, AppState>, topic_id: u64) {
 #[tauri::command]
 pub async fn check_favorites(state: State<'_, AppState>) -> CommandResult<Vec<FavoriteItem>> {
     Ok(state.core.check_favorites().await?)
+}
+
+/// История изменений отслеживаемой раздачи.
+#[tauri::command]
+pub fn favorite_history(state: State<'_, AppState>, topic_id: u64) -> Vec<ChangeEventItem> {
+    state.core.favorite_history(topic_id)
+}
+
+/// Сохранённые версии списков файлов раздачи.
+#[tauri::command]
+pub fn tracked_versions(state: State<'_, AppState>, topic_id: u64) -> Vec<FileVersionInfo> {
+    state.core.tracked_versions(topic_id)
+}
+
+/// Изменения файлов между версией пользователя и актуальной раздачей.
+#[tauri::command]
+pub async fn compute_patch(
+    state: State<'_, AppState>,
+    topic_id: u64,
+    base_version: usize,
+) -> CommandResult<PatchInfo> {
+    Ok(state.core.compute_patch(topic_id, base_version).await?)
+}
+
+/// Определяет скачанную версию по выбранной локальной папке.
+#[tauri::command]
+pub async fn detect_version(
+    state: State<'_, AppState>,
+    topic_id: u64,
+    dir: String,
+) -> CommandResult<Vec<VersionMatch>> {
+    // Сканирование папки — блокирующее I/O, уводим с async-потока.
+    let core = state.core.clone();
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || core.detect_version(topic_id, dir))
+            .await
+            .map_err(|e| CommandError::new("error", e.to_string()))??,
+    )
+}
+
+/// Скачивает патч: только изменённые файлы актуальной раздачи.
+#[tauri::command]
+pub async fn download_patch(
+    state: State<'_, AppState>,
+    topic_id: u64,
+    base_version: usize,
+    options: AddOptions,
+) -> CommandResult<String> {
+    Ok(state
+        .core
+        .download_patch(topic_id, base_version, options)
+        .await?)
+}
+
+// ── Папки и категории ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn user_categories(state: State<'_, AppState>) -> Vec<CategoryItem> {
+    state.core.user_categories()
+}
+
+#[tauri::command]
+pub fn add_user_category(
+    state: State<'_, AppState>,
+    name: String,
+    color: String,
+    forum_ids: Vec<i64>,
+) -> CommandResult<CategoryItem> {
+    Ok(state.core.add_user_category(name, color, forum_ids)?)
+}
+
+#[tauri::command]
+pub fn update_user_category(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    color: String,
+    forum_ids: Vec<i64>,
+) -> CommandResult<()> {
+    state
+        .core
+        .update_user_category(id, name, color, forum_ids)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_user_category(state: State<'_, AppState>, id: String) {
+    state.core.remove_user_category(id);
+}
+
+#[tauri::command]
+pub fn folders(state: State<'_, AppState>) -> Vec<FolderItem> {
+    state.core.folders()
+}
+
+#[tauri::command]
+pub fn add_folder(
+    state: State<'_, AppState>,
+    name: String,
+    category_id: Option<String>,
+) -> CommandResult<()> {
+    state.core.add_folder(name, category_id)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_folder(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    category_id: Option<String>,
+) -> CommandResult<()> {
+    state.core.update_folder(id, name, category_id)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_folder(state: State<'_, AppState>, id: String) {
+    state.core.remove_folder(id);
+}
+
+#[tauri::command]
+pub fn add_topic_to_folder(
+    state: State<'_, AppState>,
+    folder_id: String,
+    topic_id: u64,
+    title: String,
+) -> CommandResult<()> {
+    state.core.add_topic_to_folder(folder_id, topic_id, title)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_topic_from_folder(state: State<'_, AppState>, folder_id: String, topic_id: u64) {
+    state.core.remove_topic_from_folder(folder_id, topic_id);
 }
 
 #[tauri::command]

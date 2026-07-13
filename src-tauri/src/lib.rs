@@ -110,6 +110,12 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -160,6 +166,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::set_config,
+            commands::check_mirrors,
             commands::session_status,
             commands::login,
             commands::logout,
@@ -172,6 +179,7 @@ pub fn run() {
             commands::topic_files,
             commands::add_from_topic,
             commands::add_url,
+            commands::save_torrent,
             commands::pause,
             commands::resume,
             commands::remove,
@@ -181,6 +189,21 @@ pub fn run() {
             commands::remove_favorite,
             commands::clear_favorite_update,
             commands::check_favorites,
+            commands::favorite_history,
+            commands::tracked_versions,
+            commands::compute_patch,
+            commands::detect_version,
+            commands::download_patch,
+            commands::user_categories,
+            commands::add_user_category,
+            commands::update_user_category,
+            commands::remove_user_category,
+            commands::folders,
+            commands::add_folder,
+            commands::update_folder,
+            commands::remove_folder,
+            commands::add_topic_to_folder,
+            commands::remove_topic_from_folder,
             commands::history,
             commands::remove_history,
             commands::clear_history,

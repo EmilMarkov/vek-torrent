@@ -1,31 +1,24 @@
-// Страница раздачи: заголовок, статистика, действия и блочный рендер содержимого.
+// Страница раздачи: заголовок, статистика, действия и рендер содержимого.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowDownToLine,
-  ArrowLeft,
-  ArrowUp,
-  Heart,
-  Magnet,
-  TriangleAlert,
-  Users,
-} from "lucide-react";
+import { ArrowLeft, ArrowUp, ExternalLink, Eye, TriangleAlert, Users } from "lucide-react";
 import { clsx } from "clsx";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-import { ContentBlocks } from "@/components/ContentBlockView";
-import { openDownloadModal } from "@/components/DownloadModal";
+import { DownloadMenu } from "@/components/DownloadMenu";
+import { FolderMenuButton } from "@/components/FolderMenuButton";
+import { PostBody } from "@/components/PostBody";
 import { ShareButton } from "@/components/ShareButton";
 import { toast } from "@/components/Toaster";
 import { Badge, Button, EmptyState, Spinner } from "@/components/ui";
-import { useAddDownload } from "@/hooks/useAddDownload";
 import { api } from "@/lib/api";
 import { formatNumber, formatSize } from "@/lib/format";
+import { rutrackerTopicUrl } from "@/lib/rutracker";
 import { useAppStore } from "@/store";
 
 export function TopicView({ topicId }: { topicId: number }) {
   const back = useAppStore((s) => s.back);
-  const { add, adding } = useAddDownload();
   const queryClient = useQueryClient();
 
   const { data, isLoading, error } = useQuery({
@@ -42,15 +35,32 @@ export function TopicView({ topicId }: { topicId: number }) {
     queryFn: () => api.isFavorite(topicId),
   });
 
+  // Зеркало из настроек: «Открыть на rutracker» должна работать и когда
+  // канонический rutracker.org заблокирован.
+  const { data: config } = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
+  const mirror = config?.rutracker.mirror;
+
   const toggleFavorite = async () => {
     try {
-      if (favorite) await api.removeFavorite(topicId);
-      else await api.addFavorite(topicId);
+      if (favorite) {
+        // Снятие с отслеживания стирает историю изменений и версии файлов.
+        const history = await api.favoriteHistory(topicId);
+        if (history.length > 0) {
+          const confirmed = await ask(
+            `Вместе с раздачей будет безвозвратно удалена история изменений (событий: ${history.length}) и сохранённые версии файлов.`,
+            { title: "Перестать отслеживать?", kind: "warning" },
+          );
+          if (!confirmed) return;
+        }
+        await api.removeFavorite(topicId);
+      } else {
+        await api.addFavorite(topicId);
+      }
       await queryClient.invalidateQueries({ queryKey: ["is-favorite", topicId] });
       await queryClient.invalidateQueries({ queryKey: ["favorites"] });
-      toast.success(favorite ? "Убрано из избранного" : "Добавлено в избранное");
+      toast.success(favorite ? "Раздача больше не отслеживается" : "Раздача отслеживается");
     } catch {
-      toast.error("Не удалось изменить избранное");
+      toast.error("Не удалось изменить отслеживание");
     }
   };
 
@@ -91,45 +101,29 @@ export function TopicView({ topicId }: { topicId: number }) {
             </h1>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
+              <DownloadMenu topicId={data.id} title={data.title} />
               <Button
-                variant="primary"
-                onClick={() => openDownloadModal(data.id, data.title)}
-                title="Выбрать файлы и скачать"
+                variant="ghost"
+                onClick={() => void openUrl(rutrackerTopicUrl(data.id, mirror))}
+                title="Открыть страницу раздачи в браузере"
               >
-                <ArrowDownToLine className="h-4 w-4" />
-                Скачать
+                <ExternalLink className="h-4 w-4" />
+                Открыть на rutracker
               </Button>
-              {data.magnet && (
-                <Button
-                  variant="secondary"
-                  loading={adding}
-                  onClick={() => add(data.id, { preferMagnet: true })}
-                  title="Быстро добавить все файлы через magnet"
-                >
-                  <Magnet className="h-4 w-4" />
-                  Magnet
-                </Button>
-              )}
-              {data.magnet && (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    void openUrl(data.magnet!);
-                    toast.info("Magnet-ссылка открыта во внешнем приложении");
-                  }}
-                >
-                  Открыть внешне
-                </Button>
-              )}
               <div className="ml-auto flex items-center gap-2">
-                <ShareButton topicId={data.id} />
+                <ShareButton topicId={data.id} magnet={data.magnet} />
+                <FolderMenuButton topicId={data.id} title={data.title} />
                 <Button
                   variant="ghost"
                   onClick={toggleFavorite}
-                  title={favorite ? "Убрать из избранного" : "В избранное"}
+                  title={
+                    favorite
+                      ? "Перестать отслеживать обновления раздачи"
+                      : "Следить за обновлениями раздачи"
+                  }
                 >
-                  <Heart className={clsx("h-4 w-4", favorite && "fill-danger text-danger")} />
-                  {favorite ? "В избранном" : "В избранное"}
+                  <Eye className={clsx("h-4 w-4", favorite && "text-accent")} />
+                  {favorite ? "Отслеживается" : "Отслеживать"}
                 </Button>
               </div>
             </div>
@@ -162,11 +156,12 @@ export function TopicView({ topicId }: { topicId: number }) {
                 value={data.stats.completed != null ? formatNumber(data.stats.completed) : "—"}
               />
               {data.stats.registered && <Stat label="Добавлен" value={data.stats.registered} />}
+              {data.author && <Stat label="Автор" value={data.author} />}
               {!data.has_torrent_file && !data.magnet && <Badge tone="warn">Файл недоступен</Badge>}
             </div>
 
             <div className="mt-5">
-              <ContentBlocks blocks={data.body} />
+              <PostBody html={data.body_html} />
             </div>
           </div>
         )}

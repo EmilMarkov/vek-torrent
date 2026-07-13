@@ -1,30 +1,20 @@
 // Правый сайдбар фильтров результатов поиска (мгновенная клиентская фильтрация).
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Search, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useState } from "react";
 
-import { Input, Select, Toggle } from "@/components/ui";
+import { ForumTreePicker, useForumGroups } from "@/components/ForumTreePicker";
+import { Input, Toggle } from "@/components/ui";
 import { api } from "@/lib/api";
 import {
   DEFAULT_FILTERS,
-  forumIdsForCategory,
-  GENERAL_CATEGORIES,
+  effectiveCategoryForumIds,
   hasActiveFilters,
   parseSizeInput,
   type ClientFilters,
-  type ResultSortKey,
 } from "@/lib/filters";
-import type { ForumGroup } from "@/lib/types";
-
-const SORT_OPTIONS: { value: ResultSortKey; label: string }[] = [
-  { value: "relevance", label: "По релевантности" },
-  { value: "seeders", label: "По сидам" },
-  { value: "size", label: "По размеру" },
-  { value: "downloads", label: "По скачиваниям" },
-  { value: "date", label: "По дате" },
-  { value: "title", label: "По названию" },
-];
+import type { CategoryItem, ForumGroup } from "@/lib/types";
 
 interface Props {
   filters: ClientFilters;
@@ -57,11 +47,10 @@ export function FiltersSidebar({ filters, onChange }: Props) {
     filters.minSeeders === null ? "" : String(filters.minSeeders),
   );
 
-  const categories = useQuery({
-    queryKey: ["categories"],
-    queryFn: api.categories,
-    staleTime: 10 * 60_000,
-    retry: false,
+  const forumGroups = useForumGroups();
+  const { data: userCategories } = useQuery({
+    queryKey: ["user-categories"],
+    queryFn: api.userCategories,
   });
 
   const update = (patch: Partial<ClientFilters>) => onChange({ ...filters, ...patch });
@@ -141,29 +130,6 @@ export function FiltersSidebar({ filters, onChange }: Props) {
           />
         </Field>
 
-        <Field label="Сортировка">
-          <div className="flex items-center gap-2">
-            <Select
-              className="flex-1"
-              value={filters.sortKey}
-              onChange={(sortKey) => update({ sortKey })}
-              options={SORT_OPTIONS}
-            />
-            <button
-              onClick={() => update({ sortDesc: !filters.sortDesc })}
-              disabled={filters.sortKey === "relevance"}
-              title={filters.sortDesc ? "По убыванию" : "По возрастанию"}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-2 text-muted hover:border-border-strong hover:text-text disabled:opacity-40"
-            >
-              {filters.sortDesc ? (
-                <ArrowDown className="h-4 w-4" />
-              ) : (
-                <ArrowUp className="h-4 w-4" />
-              )}
-            </button>
-          </div>
-        </Field>
-
         <Toggle
           checked={filters.onlyApproved}
           onChange={(v) => update({ onlyApproved: v })}
@@ -171,15 +137,13 @@ export function FiltersSidebar({ filters, onChange }: Props) {
         />
 
         <CategoryChips
-          groups={categories.data ?? []}
+          categories={userCategories ?? []}
+          groups={forumGroups.data ?? []}
           forumIds={filters.forumIds}
           onChange={(forumIds) => update({ forumIds })}
         />
 
-        <ForumFilter
-          groups={categories.data ?? null}
-          loading={categories.isLoading}
-          error={categories.isError}
+        <ForumTreePicker
           selected={filters.forumIds}
           onChange={(forumIds) => update({ forumIds })}
         />
@@ -188,23 +152,28 @@ export function FiltersSidebar({ filters, onChange }: Props) {
   );
 }
 
-/** Чекбоксы обобщённых категорий: выбирают все подходящие разделы rutracker. */
+/**
+ * Чипы пользовательских категорий: выбирают все разделы rutracker категории.
+ * Наборы разделов настраиваются на странице «Категории».
+ */
 function CategoryChips({
+  categories,
   groups,
   forumIds,
   onChange,
 }: {
+  categories: CategoryItem[];
   groups: ForumGroup[];
   forumIds: number[];
   onChange: (ids: number[]) => void;
 }) {
-  if (groups.length === 0) return null;
+  if (categories.length === 0) return null;
   const selected = new Set(forumIds);
 
-  const toggle = (categoryKey: string) => {
-    const category = GENERAL_CATEGORIES.find((c) => c.key === categoryKey);
-    if (!category) return;
-    const ids = forumIdsForCategory(groups, category);
+  const idsOf = (category: CategoryItem) => effectiveCategoryForumIds(groups, category);
+
+  const toggle = (category: CategoryItem) => {
+    const ids = idsOf(category);
     if (ids.length === 0) return;
     const active = ids.every((id) => selected.has(id));
     const next = new Set(selected);
@@ -219,123 +188,37 @@ function CategoryChips({
     <div className="flex flex-col gap-1.5">
       <span className="text-[11px] font-medium text-faint">Категория</span>
       <div className="flex flex-wrap gap-1.5">
-        {GENERAL_CATEGORIES.map((category) => {
-          const ids = forumIdsForCategory(groups, category);
+        {categories.map((category) => {
+          const ids = idsOf(category);
           const active = ids.length > 0 && ids.every((id) => selected.has(id));
           return (
             <button
-              key={category.key}
-              onClick={() => toggle(category.key)}
+              key={category.id}
+              onClick={() => toggle(category)}
               disabled={ids.length === 0}
+              title={
+                ids.length === 0
+                  ? "У категории не настроены разделы (страница «Категории»)"
+                  : `Разделов: ${ids.length}`
+              }
               className={
                 active
-                  ? "rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent"
+                  ? "rounded-full px-3 py-1 text-xs font-medium"
                   : "rounded-full border border-border px-3 py-1 text-xs text-muted hover:border-border-strong hover:text-text disabled:opacity-40"
               }
+              style={
+                active
+                  ? { backgroundColor: `${category.color}26`, color: category.color }
+                  : undefined
+              }
             >
-              {category.label}
+              {category.name}
             </button>
           );
         })}
       </div>
     </div>
   );
-}
-
-function ForumFilter({
-  groups,
-  loading,
-  error,
-  selected,
-  onChange,
-}: {
-  groups: ForumGroup[] | null;
-  loading: boolean;
-  error: boolean;
-  selected: number[];
-  onChange: (ids: number[]) => void;
-}) {
-  const [query, setQuery] = useState("");
-
-  const selectedSet = new Set(selected);
-  const toggle = (id: number) => {
-    const next = new Set(selectedSet);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onChange([...next]);
-  };
-
-  const q = query.trim().toLowerCase();
-  const visible = filterGroups(groups ?? [], q);
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium text-faint">Раздел</span>
-        {selected.length > 0 && (
-          <button onClick={() => onChange([])} className="text-[11px] text-faint hover:text-danger">
-            снять ({selected.length})
-          </button>
-        )}
-      </div>
-
-      {loading ? (
-        <p className="text-xs text-faint">Загрузка разделов…</p>
-      ) : error || !groups ? (
-        <p className="text-xs text-faint">
-          Разделы доступны после входа на rutracker (см. Настройки).
-        </p>
-      ) : (
-        <>
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Найти раздел…"
-              className="pl-8 text-xs"
-            />
-          </div>
-          <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-surface-2/50">
-            {visible.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-faint">Ничего не найдено</p>
-            ) : (
-              visible.map((group) => (
-                <div key={group.title}>
-                  <div className="sticky top-0 bg-surface-3/90 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-muted uppercase backdrop-blur">
-                    {group.title}
-                  </div>
-                  {group.forums.map((forum) => (
-                    <label
-                      key={forum.id}
-                      className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs text-text hover:bg-surface-3"
-                      style={{ paddingLeft: `${10 + forum.depth * 12}px` }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedSet.has(forum.id)}
-                        onChange={() => toggle(forum.id)}
-                        className="accent-accent"
-                      />
-                      <span className="truncate">{forum.name}</span>
-                    </label>
-                  ))}
-                </div>
-              ))
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/** Фильтрует группы форумов по подстроке (оставляя непустые группы). */
-function filterGroups(groups: ForumGroup[], query: string): ForumGroup[] {
-  if (!query) return groups;
-  return groups
-    .map((g) => ({ ...g, forums: g.forums.filter((f) => f.name.toLowerCase().includes(query)) }))
-    .filter((g) => g.forums.length > 0);
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

@@ -7,6 +7,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+ammonia = { workspace = true }
 cookie_store = { workspace = true }
 encoding_rs = { workspace = true }
 percent-encoding = { workspace = true }

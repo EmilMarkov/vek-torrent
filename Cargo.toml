@@ -31,6 +31,7 @@ vek-core = { path = "crates/vek-core" }
 vek-api = { path = "crates/vek-api" }
 
 # Общие зависимости
+ammonia = "4"
 anyhow = "1"
 axum = "0.8"
 librqbit = { version = "8.1", default-features = false, features = ["rust-tls"] }
@@ -86,11 +87,14 @@ wiremock = "0.6"
 # Tauri
 tauri = { version = "2.11", features = ["tray-icon"] }
 tauri-build = { version = "2", features = [] }
+tauri-plugin-autostart = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-updater = "2"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
