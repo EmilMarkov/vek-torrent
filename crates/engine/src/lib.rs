@@ -9,6 +9,6 @@ pub mod engine;
 pub mod error;
 pub mod models;
 
-pub use engine::{Engine, EngineConfig, torrent_files};
+pub use engine::{Engine, EngineConfig, TorrentMeta, torrent_files, torrent_meta};
 pub use error::{Error, Result};
 pub use models::{AddParams, EngineFile, EngineTorrent, Source, TorrentPreview, TorrentState};

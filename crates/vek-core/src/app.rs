@@ -1089,7 +1089,7 @@ impl AppCore {
         self.save_library();
     }
 
-    /// Папки с раздачами (категории развёрнуты).
+    /// Папки с раздачами (категории и сторонние торренты развёрнуты).
     pub fn folders(&self) -> Vec<FolderItem> {
         let lib = self.library.read().expect("library lock");
         lib.folders
@@ -1104,6 +1104,13 @@ impl AppCore {
                     .cloned()
                     .map(Into::into),
                 topics: folder.topics.iter().cloned().map(Into::into).collect(),
+                externals: folder
+                    .external_ids
+                    .iter()
+                    .filter_map(|id| lib.external_torrents.iter().find(|e| &e.id == id))
+                    .cloned()
+                    .map(Into::into)
+                    .collect(),
                 created_at: folder.created_at,
             })
             .collect()
@@ -1117,6 +1124,7 @@ impl AppCore {
             name,
             category_id: category_id.filter(|c| !c.is_empty()),
             topics: Vec::new(),
+            external_ids: Vec::new(),
             created_at: now_unix(),
         };
         self.library
@@ -1187,6 +1195,107 @@ impl AppCore {
             .expect("library lock")
             .remove_topic_from_folder(&folder_id, topic_id);
         self.save_library();
+    }
+
+    /// Добавляет сторонний торрент в папку.
+    pub fn add_external_to_folder(&self, folder_id: String, external_id: String) -> Result<()> {
+        let found = self
+            .library
+            .write()
+            .expect("library lock")
+            .add_external_to_folder(&folder_id, &external_id);
+        if !found {
+            return Err(Error::Config("папка не найдена".into()));
+        }
+        self.save_library();
+        Ok(())
+    }
+
+    /// Убирает сторонний торрент из папки.
+    pub fn remove_external_from_folder(&self, folder_id: String, external_id: String) {
+        self.library
+            .write()
+            .expect("library lock")
+            .remove_external_from_folder(&folder_id, &external_id);
+        self.save_library();
+    }
+
+    // ── Сторонние торренты ──────────────────────────────────────────────
+
+    /// Каталог с байтами сторонних торрентов.
+    fn external_dir(&self) -> PathBuf {
+        self.app_dir.join("external")
+    }
+
+    fn external_file(&self, id: &str) -> PathBuf {
+        self.external_dir().join(format!("{id}.torrent"))
+    }
+
+    /// Список импортированных сторонних торрентов.
+    pub fn external_torrents(&self) -> Vec<crate::models::ExternalTorrentItem> {
+        self.library
+            .read()
+            .expect("library lock")
+            .external_torrents
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect()
+    }
+
+    /// Импортирует сторонний `.torrent` по пути к файлу. Байты сохраняются
+    /// в каталоге приложения, метаданные — в библиотеке.
+    pub fn add_external_torrent(&self, path: String) -> Result<crate::models::ExternalTorrentItem> {
+        let bytes = std::fs::read(&path)
+            .map_err(|e| Error::Config(format!("не удалось прочитать файл: {e}")))?;
+        let meta = engine::torrent_meta(&bytes)?;
+        let id = uuid::Uuid::new_v4().simple().to_string();
+
+        std::fs::create_dir_all(self.external_dir())?;
+        std::fs::write(self.external_file(&id), &bytes)?;
+
+        let record = library::ExternalTorrentRecord {
+            id,
+            name: meta.name,
+            info_hash: meta.info_hash,
+            size: meta.total_size,
+            added_at: now_unix(),
+        };
+        self.library
+            .write()
+            .expect("library lock")
+            .add_external_torrent(record.clone());
+        self.save_library();
+        Ok(record.into())
+    }
+
+    /// Удаляет сторонний торрент: запись, файл и вхождения в папки.
+    pub fn remove_external_torrent(&self, id: String) {
+        let _ = std::fs::remove_file(self.external_file(&id));
+        self.library
+            .write()
+            .expect("library lock")
+            .remove_external_torrent(&id);
+        self.save_library();
+    }
+
+    /// Добавляет сторонний торрент в движок (скачивание).
+    pub async fn download_external_torrent(
+        &self,
+        id: String,
+        options: AddOptions,
+    ) -> Result<String> {
+        let bytes = std::fs::read(self.external_file(&id))
+            .map_err(|_| Error::Config("файл торрента не найден".into()))?;
+        let config = self.config();
+        let engine = self.ensure_engine().await?;
+        engine
+            .add(
+                Source::TorrentBytes(bytes),
+                self.add_params(&config, &options),
+            )
+            .await
+            .map_err(Error::from)
     }
 
     /// История скачиваний.

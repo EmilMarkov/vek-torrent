@@ -10,6 +10,7 @@ import type {
   CategoryItem,
   ChangeEventItem,
   DownloadItem,
+  ExternalTorrentItem,
   FavoriteItem,
   FileVersionInfo,
   FolderItem,
@@ -103,6 +104,16 @@ export const api = {
     call<void>("add_topic_to_folder", { folderId, topicId, title }),
   removeTopicFromFolder: (folderId: string, topicId: number) =>
     call<void>("remove_topic_from_folder", { folderId, topicId }),
+  addExternalToFolder: (folderId: string, externalId: string) =>
+    call<void>("add_external_to_folder", { folderId, externalId }),
+  removeExternalFromFolder: (folderId: string, externalId: string) =>
+    call<void>("remove_external_from_folder", { folderId, externalId }),
+
+  externalTorrents: () => call<ExternalTorrentItem[]>("external_torrents"),
+  addExternalTorrent: (path: string) => call<ExternalTorrentItem>("add_external_torrent", { path }),
+  removeExternalTorrent: (id: string) => call<void>("remove_external_torrent", { id }),
+  downloadExternalTorrent: (id: string, options: AddOptions) =>
+    call<string>("download_external_torrent", { id, options }),
 
   favorites: () => call<FavoriteItem[]>("favorites"),
   isFavorite: (topicId: number) => call<boolean>("is_favorite", { topicId }),

@@ -136,6 +136,8 @@ export interface GeneralCategory {
   key: string;
   label: string;
   test: RegExp;
+  /** Исключение по имени раздела (даже если совпал заголовок группы). */
+  exclude?: RegExp;
 }
 
 /**
@@ -144,7 +146,10 @@ export interface GeneralCategory {
  * музыки, чтобы «аудиокниги» не попадали в музыку.
  */
 export const GENERAL_CATEGORIES: GeneralCategory[] = [
-  { key: "films", label: "Фильмы", test: /кино|фильм|сериал|мультфильм|мультсериал/i },
+  { key: "series", label: "Сериалы", test: /сериал/i },
+  // «Фильмы» ловит группу «Кино, Видео и ТВ» по заголовку, поэтому явно
+  // исключаем сериальные подразделы — они относятся к «Сериалам».
+  { key: "films", label: "Фильмы", test: /кино|фильм|мультфильм/i, exclude: /сериал/i },
   { key: "books", label: "Книги", test: /книг|литератур/i },
   { key: "music", label: "Музыка", test: /музык|песн|альбом|дискограф/i },
   { key: "games", label: "Игры", test: /игр|game|консол/i },
@@ -156,6 +161,7 @@ export function forumIdsForCategory(groups: ForumGroup[], category: GeneralCateg
   for (const group of groups) {
     const groupMatches = category.test.test(group.title);
     for (const forum of group.forums) {
+      if (category.exclude?.test(forum.name)) continue;
       if (groupMatches || category.test.test(forum.name)) ids.push(forum.id);
     }
   }

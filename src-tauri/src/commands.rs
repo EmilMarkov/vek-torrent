@@ -6,9 +6,9 @@ use tauri::State;
 
 use vek_core::AppConfig;
 use vek_core::models::{
-    AddOptions, AppStatus, CategoryItem, ChangeEventItem, DownloadItem, FavoriteItem,
-    FileVersionInfo, FolderItem, HistoryItem, MirrorStatus, PatchInfo, TorrentFilesPreview,
-    TransferSummary, VersionMatch,
+    AddOptions, AppStatus, CategoryItem, ChangeEventItem, DownloadItem, ExternalTorrentItem,
+    FavoriteItem, FileVersionInfo, FolderItem, HistoryItem, MirrorStatus, PatchInfo,
+    TorrentFilesPreview, TransferSummary, VersionMatch,
 };
 use vek_core::rutracker_models::{
     CaptchaAnswer, CaptchaChallenge, ForumGroup, SearchPage, SearchRequest, SessionInfo, TopicPage,
@@ -356,6 +356,57 @@ pub fn add_topic_to_folder(
 #[tauri::command]
 pub fn remove_topic_from_folder(state: State<'_, AppState>, folder_id: String, topic_id: u64) {
     state.core.remove_topic_from_folder(folder_id, topic_id);
+}
+
+#[tauri::command]
+pub fn add_external_to_folder(
+    state: State<'_, AppState>,
+    folder_id: String,
+    external_id: String,
+) -> CommandResult<()> {
+    state.core.add_external_to_folder(folder_id, external_id)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_external_from_folder(
+    state: State<'_, AppState>,
+    folder_id: String,
+    external_id: String,
+) {
+    state
+        .core
+        .remove_external_from_folder(folder_id, external_id);
+}
+
+// ── Сторонние торренты ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn external_torrents(state: State<'_, AppState>) -> Vec<ExternalTorrentItem> {
+    state.core.external_torrents()
+}
+
+/// Импортирует сторонний `.torrent` по пути к файлу.
+#[tauri::command]
+pub fn add_external_torrent(
+    state: State<'_, AppState>,
+    path: String,
+) -> CommandResult<ExternalTorrentItem> {
+    Ok(state.core.add_external_torrent(path)?)
+}
+
+#[tauri::command]
+pub fn remove_external_torrent(state: State<'_, AppState>, id: String) {
+    state.core.remove_external_torrent(id);
+}
+
+#[tauri::command]
+pub async fn download_external_torrent(
+    state: State<'_, AppState>,
+    id: String,
+    options: AddOptions,
+) -> CommandResult<String> {
+    Ok(state.core.download_external_torrent(id, options).await?)
 }
 
 #[tauri::command]

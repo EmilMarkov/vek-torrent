@@ -17,7 +17,7 @@ import { BackButton } from "@/components/PageHeader";
 import { SearchHistoryDropdown } from "@/components/SearchHistory";
 import { RESULT_COLS, ResultRow } from "@/components/ResultRow";
 import { Button, EmptyState, Input, Pagination, Spinner } from "@/components/ui";
-import { useSearch } from "@/hooks/useSearch";
+import { SEARCH_PAGE_SIZE, useSearch } from "@/hooks/useSearch";
 import {
   applyFilters,
   hasActiveFilters,
@@ -33,7 +33,15 @@ export function SearchPage() {
   const [showFilters, setShowFilters] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const visible = useMemo(() => applyFilters(search.items, filters), [search.items, filters]);
+  // Отфильтрованный набор (клиентские фильтры поверх всех загруженных
+  // результатов) и клиентская пагинация поверх него.
+  const filtered = useMemo(() => applyFilters(search.items, filters), [search.items, filters]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / SEARCH_PAGE_SIZE));
+  const displayPage = Math.min(search.displayPage, pageCount);
+  const visible = useMemo(
+    () => filtered.slice((displayPage - 1) * SEARCH_PAGE_SIZE, displayPage * SEARCH_PAGE_SIZE),
+    [filtered, displayPage],
+  );
 
   const scrollRef = useRef<HTMLDivElement>(null);
   // TanStack Virtual возвращает нестабильные функции — это ожидаемо здесь.
@@ -62,9 +70,9 @@ export function SearchPage() {
 
   const virtualItems = virtualizer.getVirtualItems();
 
-  // Переход по страницам: скроллим список к началу.
+  // Переход по страницам (клиентский): скроллим список к началу.
   const goToPage = (page: number) => {
-    search.setPage(page);
+    search.setDisplayPage(page);
     scrollRef.current?.scrollTo({ top: 0 });
   };
 
@@ -105,13 +113,17 @@ export function SearchPage() {
         {search.hasSearched && !search.loading && !search.error && (
           <div className="flex items-center gap-2 text-xs text-faint">
             <span>
-              Найдено {search.totalFound}
-              {search.totalFound >= 500 ? "+" : ""} · страница {search.page} из {search.pageCount} ·
-              показано {visible.length}
-              {hasClientFilters(filters) &&
-                visible.length !== search.items.length &&
-                ` из ${search.items.length} на странице (фильтры действуют в пределах страницы)`}
+              {hasClientFilters(filters)
+                ? `Подходит ${filtered.length} из ${search.totalFound}`
+                : `Найдено ${search.totalFound}`}
+              {search.totalFound >= 500 ? "+" : ""} · страница {displayPage} из {pageCount}
             </span>
+            {search.loadingMore && (
+              <span className="flex items-center gap-1">
+                <Spinner className="h-3 w-3" />
+                догрузка…
+              </span>
+            )}
           </div>
         )}
       </header>
@@ -142,9 +154,7 @@ export function SearchPage() {
                     title="Ничего не найдено"
                     hint={
                       hasActiveFilters(filters)
-                        ? search.pageCount > 1
-                          ? "Фильтры действуют в пределах текущей страницы — посмотрите другие страницы или ослабьте фильтры."
-                          : "Попробуйте ослабить фильтры."
+                        ? "Попробуйте ослабить фильтры."
                         : "Попробуйте изменить запрос."
                     }
                   />
@@ -170,11 +180,11 @@ export function SearchPage() {
             )}
           </div>
 
-          {search.hasSearched && search.pageCount > 1 && (
+          {search.hasSearched && pageCount > 1 && (
             <div className="border-t border-border px-4 py-2">
               <Pagination
-                page={search.page}
-                pageCount={search.pageCount}
+                page={displayPage}
+                pageCount={pageCount}
                 onChange={goToPage}
                 disabled={search.loading}
               />

@@ -1,17 +1,19 @@
-// Lazy-search с серверной пагинацией: дебаунс запроса, отмена устаревших
-// ответов, постраничная навигация (rutracker отдаёт по 50, максимум 500).
+// Lazy-search: дебаунс запроса, отмена устаревших ответов.
 //
-// Фильтры по автору, разделам и категориям — СЕРВЕРНЫЕ (`pn=`, `f[]=`):
-// их изменение перезапускает поиск, поэтому счётчик результатов и пагинация
-// честные. Клиентскими остаются только уточнение/размер/сиды/проверенные —
-// они действуют в пределах загруженной страницы.
+// Все серверные страницы результатов (rutracker отдаёт по 50, максимум 500)
+// загружаются в буфер, а пагинация в UI — КЛИЕНТСКАЯ поверх ОТФИЛЬТРОВАННОГО
+// набора. Так клиентские фильтры (уточнение/размер/сиды/проверенные) видят все
+// найденные раздачи, а не только текущую страницу, и «страница X из Y»
+// считается по числу подходящих результатов.
+//
+// Серверные фильтры (автор, разделы, категории) уходят в запрос rutracker
+// (`pn=`, `f[]=`), поэтому влияют на само число найденного.
 //
 // Состояние хранится в zustand-сторе (а не в локальном useState страницы),
-// поэтому переживает уход со страницы «Поиск» и возврат по кнопке «Назад» —
-// запрос, результаты и позиция прокрутки сохраняются.
+// поэтому переживает уход со страницы «Поиск» и возврат по кнопке «Назад».
 
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { create } from "zustand";
 
 import { useForumGroups } from "@/components/ForumTreePicker";
@@ -22,7 +24,7 @@ import type { SearchResult, SortField, SortOrder } from "@/lib/types";
 
 const DEBOUNCE_MS = 450;
 
-/** Размер серверной страницы rutracker. */
+/** Размер страницы в интерфейсе (пагинация отфильтрованного набора). */
 export const SEARCH_PAGE_SIZE = 50;
 /** Максимум результатов, который отдаёт rutracker. */
 const SERVER_CAP = 500;
@@ -32,15 +34,18 @@ interface SearchStore {
   /** Серверная сортировка rutracker (клик по заголовку таблицы). */
   sort: SortField;
   order: SortOrder;
-  /** Результаты текущей страницы. */
+  /** Все загруженные результаты поиска (по всем серверным страницам). */
   items: SearchResult[];
   totalFound: number;
-  /** Текущая страница (с 1). */
-  page: number;
+  /** Текущая страница интерфейса (с 1) — поверх отфильтрованного набора. */
+  displayPage: number;
+  /** Идёт первичная загрузка (первая страница). */
   loading: boolean;
+  /** Догружаются остальные серверные страницы в фоне. */
+  loadingMore: boolean;
   error: ApiError | null;
   hasSearched: boolean;
-  /** Ключ (запрос+серверные фильтры) последнего успешного поиска: защита от
+  /** Ключ (запрос+автор+разделы) последнего успешного поиска — защита от
    *  повторного запуска того же поиска при возврате на страницу. */
   lastSearchedKey: string;
   /** Сохранённая позиция прокрутки списка результатов. */
@@ -49,23 +54,15 @@ interface SearchStore {
   filters: ClientFilters;
 
   setQuery: (query: string) => void;
+  setDisplayPage: (page: number) => void;
   setScrollTop: (scrollTop: number) => void;
   setFilters: (filters: ClientFilters) => void;
 }
 
-// Служебные изменяемые значения вне рендера: токен продолжения, идентификатор
-// актуального запроса (ответы с меньшим id отбрасываются — «отмена устаревших»)
-// и таймер дебаунса (сбрасывается при немедленном поиске из setSort).
+// Служебные изменяемые значения вне рендера: идентификатор актуального
+// запроса (ответы с меньшим id отбрасываются) и таймер дебаунса.
 let runId = 0;
-let searchId: string | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-// Актуальный серверный набор разделов (категории + дерево) — читается
-// fetchPage в момент запроса.
-let resolvedForums: number[] = [];
-// Ключ параметров серверной сессии (запрос+автор+разделы), с которыми она
-// РЕАЛЬНО создана. Стр. пагинации внутри сессии сохраняют этот ключ, а не
-// текущее (возможно, уже изменившееся) состояние разделов.
-let sessionKey = "";
 
 const useSearchStore = create<SearchStore>((set) => ({
   query: "",
@@ -73,14 +70,16 @@ const useSearchStore = create<SearchStore>((set) => ({
   order: "desc",
   items: [],
   totalFound: 0,
-  page: 1,
+  displayPage: 1,
   loading: false,
+  loadingMore: false,
   error: null,
   hasSearched: false,
   lastSearchedKey: "",
   scrollTop: 0,
   filters: DEFAULT_FILTERS,
   setQuery: (query) => set({ query }),
+  setDisplayPage: (displayPage) => set({ displayPage }),
   setScrollTop: (scrollTop) => set({ scrollTop }),
   setFilters: (filters) => set({ filters }),
 }));
@@ -107,20 +106,23 @@ export function useSearch() {
     }
     return [...ids].sort((a, b) => a - b);
   }, [store.filters.forumIds, store.filters.categoryIds, userCategories, forumGroups.data]);
-  resolvedForums = serverForums;
 
-  // Готовность серверных фильтров: пока категории не разрешены в разделы,
+  // Актуальный набор разделов для стабильного runSearch (обновляем в эффекте,
+  // а не переприсваиванием модульной переменной в рендере).
+  const forumsRef = useRef(serverForums);
+  useEffect(() => {
+    forumsRef.current = serverForums;
+  }, [serverForums]);
+
+  // Готовность серверных фильтров: пока категории не разрешились в разделы,
   // поиск с ними уходить не должен (иначе выдача — без фильтра категории).
-  // Категория с явными forum_ids дерева не требует; эвристическая — требует.
   const filtersReady = useMemo(() => {
     if (store.filters.categoryIds.length === 0) return true;
-    if (userCategories === undefined) return false; // список категорий грузится
+    if (userCategories === undefined) return false;
     const needsTree = store.filters.categoryIds.some((id) => {
       const c = userCategories.find((x) => x.id === id);
       return c !== undefined && c.forumIds.length === 0;
     });
-    // Дерево нужно только эвристическим категориям; при ошибке загрузки —
-    // работаем best-effort с тем, что есть.
     return !needsTree || forumGroups.data !== undefined || forumGroups.isError;
   }, [store.filters.categoryIds, userCategories, forumGroups.data, forumGroups.isError]);
 
@@ -137,72 +139,74 @@ export function useSearch() {
   }, [userCategories]);
 
   /**
-   * Загружает страницу результатов. `newSession` начинает новую серверную
-   * сессию поиска (rutracker фиксирует запрос, фильтры и порядок в
-   * `search_id`, поэтому их смена требует сброса токена).
-   *
-   * Если страница внутри существующей сессии не загрузилась (токен истёк на
-   * сервере), делается одна автоматическая попытка через новую сессию —
-   * бэкенд умеет дочитать нужную страницу свежесозданной сессии.
+   * Запускает новый поиск: грузит первую серверную страницу, затем в фоне —
+   * остальные, накапливая их в буфер (до серверного предела). Устаревшие
+   * запросы отбрасываются по `runId`.
    */
-  const fetchPage = useCallback(async function run(
-    targetPage: number,
-    newSession: boolean,
-  ): Promise<void> {
+  const runSearch = useCallback(async function run(): Promise<void> {
     const state = useSearchStore.getState();
     const currentQuery = state.query.trim();
     const currentAuthor = state.filters.author.trim();
     if (!currentQuery && !currentAuthor) return;
 
-    // Снимок разделов на момент запроса: и `forums`, и ключ сессии считаем от
-    // одного значения (module-var может измениться между рендерами).
-    const requestForums = resolvedForums;
-
-    // Токен старой сессии не должен пережить смену запроса; ключ сессии
-    // фиксируем параметрами, с которыми она реально создаётся.
-    if (newSession) {
-      searchId = null;
-      sessionKey = searchKey(currentQuery, currentAuthor, requestForums);
-    }
-
+    const forums = forumsRef.current;
     const id = ++runId;
-    useSearchStore.setState({ loading: true, error: null, page: targetPage });
+    useSearchStore.setState({
+      loading: true,
+      loadingMore: false,
+      error: null,
+      items: [],
+      displayPage: 1,
+    });
 
-    try {
-      const page = await api.search({
+    const request = (offset: number, searchId: string | null) =>
+      api.search({
         query: currentQuery,
-        forums: requestForums,
+        forums,
         author: currentAuthor || null,
         sort: state.sort,
         order: state.order,
-        offset: (targetPage - 1) * SEARCH_PAGE_SIZE,
-        search_id: newSession ? null : searchId,
+        offset,
+        search_id: searchId,
       });
 
+    try {
+      const first = await request(0, null);
       if (id !== runId) return; // устаревший ответ
 
-      searchId = page.search_id;
-      if (newSession && currentQuery) pushSearchHistory(currentQuery);
+      if (currentQuery) pushSearchHistory(currentQuery);
+      let items = first.items;
       useSearchStore.setState({
-        items: page.items,
-        totalFound: page.total_found,
+        items,
+        totalFound: first.total_found,
         loading: false,
+        loadingMore: items.length < Math.min(first.total_found, SERVER_CAP),
         error: null,
         hasSearched: true,
-        // Ключ сессии, а не текущих разделов: страница внутри сессии не должна
-        // «запечатывать» ключ с параметрами, которых в этой сессии не было.
-        lastSearchedKey: sessionKey,
+        lastSearchedKey: searchKey(currentQuery, currentAuthor, forums),
         scrollTop: 0,
       });
+
+      // Догрузка остальных страниц в фоне (одна серверная сессия).
+      let searchId = first.search_id;
+      while (items.length < Math.min(first.total_found, SERVER_CAP)) {
+        const next = await request(items.length, searchId);
+        if (id !== runId) return;
+        if (next.items.length === 0) break;
+        searchId = next.search_id ?? searchId;
+        items = items.concat(next.items);
+        useSearchStore.setState({
+          items,
+          totalFound: next.total_found,
+          loadingMore: items.length < Math.min(next.total_found, SERVER_CAP),
+        });
+      }
+      if (id === runId) useSearchStore.setState({ loadingMore: false });
     } catch (error) {
       if (id !== runId) return;
-      // Сессия могла истечь на сервере — одна попытка с новой сессией.
-      if (!newSession) {
-        return run(targetPage, true);
-      }
       useSearchStore.setState({
         loading: false,
-        // Числа прошлого запроса не должны рисовать пагинатор поверх ошибки.
+        loadingMore: false,
         items: [],
         totalFound: 0,
         error: error instanceof ApiError ? error : new ApiError("error", String(error)),
@@ -217,12 +221,12 @@ export function useSearch() {
   useEffect(() => {
     if (!store.query.trim() && !author) {
       runId++;
-      searchId = null;
       useSearchStore.setState({
         items: [],
         totalFound: 0,
-        page: 1,
+        displayPage: 1,
         loading: false,
+        loadingMore: false,
         error: null,
         hasSearched: false,
         lastSearchedKey: "",
@@ -230,40 +234,23 @@ export function useSearch() {
       });
       return;
     }
-    // Не запускаем поиск, пока категории не разрешились в разделы: иначе
-    // выдача уйдёт без фильтра категории. Когда данные догрузятся, serverForums
-    // изменится → эффект перезапустится.
+    // Не запускаем поиск, пока категории не разрешились в разделы.
     if (!filtersReady) return;
-    // Возврат на страницу с неизменными параметрами: результаты, номер
-    // страницы и позиция прокрутки уже в сторе — повторный поиск не нужен.
+    // Возврат на страницу с неизменными параметрами: результаты уже в сторе.
     const key = searchKey(store.query.trim(), author, serverForums);
     if (key === useSearchStore.getState().lastSearchedKey) return;
-    debounceTimer = setTimeout(() => void fetchPage(1, true), DEBOUNCE_MS);
+    debounceTimer = setTimeout(() => void runSearch(), DEBOUNCE_MS);
     return () => clearTimeout(debounceTimer);
-  }, [store.query, author, forumsKey, filtersReady, serverForums, fetchPage]);
+  }, [store.query, author, forumsKey, filtersReady, serverForums, runSearch]);
 
-  // Смена сортировки — новая серверная сессия сразу, без дебаунса.
-  // Взведённый таймер сбрасываем, чтобы не улетел дублирующий запрос.
+  // Смена сортировки — новый поиск сразу, без дебаунса.
   const setSort = useCallback(
     (sort: SortField, order: SortOrder) => {
       clearTimeout(debounceTimer);
       useSearchStore.setState({ sort, order });
-      void fetchPage(1, true);
+      void runSearch();
     },
-    [fetchPage],
-  );
-
-  // Переход по страницам в рамках текущей серверной сессии.
-  const setPage = useCallback(
-    (page: number) => {
-      void fetchPage(page, false);
-    },
-    [fetchPage],
-  );
-
-  const pageCount = Math.max(
-    1,
-    Math.ceil(Math.min(store.totalFound, SERVER_CAP) / SEARCH_PAGE_SIZE),
+    [runSearch],
   );
 
   return {
@@ -274,20 +261,17 @@ export function useSearch() {
     setSort,
     items: store.items,
     totalFound: store.totalFound,
-    page: store.page,
-    pageCount,
-    setPage,
+    displayPage: store.displayPage,
+    setDisplayPage: store.setDisplayPage,
     loading: store.loading,
+    loadingMore: store.loadingMore,
     error: store.error,
     hasSearched: store.hasSearched,
     scrollTop: store.scrollTop,
     setScrollTop: store.setScrollTop,
     filters: store.filters,
     setFilters: store.setFilters,
-    retry: () => {
-      const state = useSearchStore.getState();
-      void fetchPage(state.page, state.page === 1);
-    },
+    retry: () => void runSearch(),
   };
 }
 

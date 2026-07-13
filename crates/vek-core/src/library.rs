@@ -111,17 +111,37 @@ pub struct FolderRecord {
     pub category_id: Option<String>,
     #[serde(default)]
     pub topics: Vec<FolderTopicRecord>,
+    /// Идентификаторы сторонних торрентов в папке (см. [`ExternalTorrentRecord`]).
+    #[serde(default)]
+    pub external_ids: Vec<String>,
     /// Когда создана (unix).
     pub created_at: i64,
+}
+
+/// Сторонний `.torrent`-файл, импортированный пользователем (не с rutracker).
+/// Байты хранятся отдельным файлом в каталоге приложения.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalTorrentRecord {
+    pub id: String,
+    pub name: String,
+    /// info-hash (hex) — для дедупликации импорта.
+    pub info_hash: String,
+    pub size: u64,
+    pub added_at: i64,
 }
 
 /// Стандартные категории, создаваемые при первом запуске.
 pub const DEFAULT_CATEGORIES: &[(&str, &str)] = &[
     ("Фильмы", "#4da3ff"),
+    ("Сериалы", "#ff8a5c"),
     ("Книги", "#f5b544"),
     ("Музыка", "#3ecf8e"),
     ("Игры", "#7c5cff"),
 ];
+
+/// Стандартные категории первой версии (для миграции старых установок,
+/// где отмечен лишь флаг `categories_seeded`).
+const LEGACY_SEEDED: &[&str] = &["Фильмы", "Книги", "Музыка", "Игры"];
 
 /// Содержимое библиотеки.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -131,9 +151,15 @@ pub struct Library {
     pub history: Vec<HistoryRecord>,
     pub folders: Vec<FolderRecord>,
     pub categories: Vec<CategoryRecord>,
-    /// Стандартные категории уже создавались (защита от повторного посева
-    /// после того, как пользователь их удалил).
+    #[serde(default)]
+    pub external_torrents: Vec<ExternalTorrentRecord>,
+    /// Легаси-флаг: стандартные категории первой версии уже создавались.
     pub categories_seeded: bool,
+    /// Имена стандартных категорий, которые уже создавались — чтобы новые
+    /// стандартные (напр. «Сериалы») появлялись при апгрейде, а удалённые
+    /// пользователем не пересоздавались.
+    #[serde(default)]
+    pub seeded_standard: Vec<String>,
 }
 
 impl Library {
@@ -196,21 +222,31 @@ impl Library {
 
     // ── Категории ───────────────────────────────────────────────────────
 
-    /// Создаёт стандартные категории при первом обращении (один раз).
+    /// Создаёт недостающие стандартные категории. Возвращает `true`, если
+    /// что-то добавлено. Уже созданные и удалённые пользователем не трогает
+    /// (учёт по именам в `seeded_standard`).
     pub fn seed_categories(&mut self, make_id: impl Fn() -> String) -> bool {
-        if self.categories_seeded {
-            return false;
+        // Миграция со старого флага: 4 базовые считаем уже посеянными.
+        if self.categories_seeded && self.seeded_standard.is_empty() {
+            self.seeded_standard = LEGACY_SEEDED.iter().map(|s| (*s).to_owned()).collect();
         }
+
+        let mut added = false;
         for (name, color) in DEFAULT_CATEGORIES {
+            if self.seeded_standard.iter().any(|s| s == name) {
+                continue;
+            }
             self.categories.push(CategoryRecord {
                 id: make_id(),
                 name: (*name).to_owned(),
                 color: (*color).to_owned(),
                 forum_ids: Vec::new(),
             });
+            self.seeded_standard.push((*name).to_owned());
+            added = true;
         }
         self.categories_seeded = true;
-        true
+        added
     }
 
     pub fn add_category(&mut self, record: CategoryRecord) {
@@ -283,6 +319,42 @@ impl Library {
     pub fn remove_topic_from_folder(&mut self, folder_id: &str, topic_id: u64) {
         if let Some(folder) = self.folders.iter_mut().find(|f| f.id == folder_id) {
             folder.topics.retain(|t| t.topic_id != topic_id);
+        }
+    }
+
+    /// Добавляет сторонний торрент в папку (дедуп); `false`, если папки нет.
+    pub fn add_external_to_folder(&mut self, folder_id: &str, external_id: &str) -> bool {
+        match self.folders.iter_mut().find(|f| f.id == folder_id) {
+            Some(folder) => {
+                if !folder.external_ids.iter().any(|e| e == external_id) {
+                    folder.external_ids.insert(0, external_id.to_owned());
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn remove_external_from_folder(&mut self, folder_id: &str, external_id: &str) {
+        if let Some(folder) = self.folders.iter_mut().find(|f| f.id == folder_id) {
+            folder.external_ids.retain(|e| e != external_id);
+        }
+    }
+
+    // ── Сторонние торренты ──────────────────────────────────────────────
+
+    pub fn add_external_torrent(&mut self, record: ExternalTorrentRecord) {
+        // Дедуп по info-hash: повторный импорт того же файла обновляет запись.
+        self.external_torrents
+            .retain(|e| e.info_hash != record.info_hash);
+        self.external_torrents.insert(0, record);
+    }
+
+    /// Удаляет сторонний торрент и его вхождения во все папки.
+    pub fn remove_external_torrent(&mut self, id: &str) {
+        self.external_torrents.retain(|e| e.id != id);
+        for folder in &mut self.folders {
+            folder.external_ids.retain(|e| e != id);
         }
     }
 }

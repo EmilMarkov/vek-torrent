@@ -297,6 +297,29 @@ impl From<crate::library::FolderTopicRecord> for FolderTopicItem {
     }
 }
 
+/// Сторонний `.torrent`, импортированный пользователем.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalTorrentItem {
+    pub id: String,
+    pub name: String,
+    pub info_hash: String,
+    pub size: u64,
+    pub added_at: i64,
+}
+
+impl From<crate::library::ExternalTorrentRecord> for ExternalTorrentItem {
+    fn from(r: crate::library::ExternalTorrentRecord) -> Self {
+        Self {
+            id: r.id,
+            name: r.name,
+            info_hash: r.info_hash,
+            size: r.size,
+            added_at: r.added_at,
+        }
+    }
+}
+
 /// Пользовательская папка с раздачами (категория уже развёрнута).
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -305,6 +328,8 @@ pub struct FolderItem {
     pub name: String,
     pub category: Option<CategoryItem>,
     pub topics: Vec<FolderTopicItem>,
+    /// Сторонние торренты, добавленные в папку.
+    pub externals: Vec<ExternalTorrentItem>,
     pub created_at: i64,
 }
 

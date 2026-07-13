@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Check,
+  File as FileIcon,
   Folder as FolderIcon,
   FolderPlus,
   Pencil,
@@ -22,7 +23,7 @@ import { clsx } from "clsx";
 import { toast } from "@/components/Toaster";
 import { Button, EmptyState, Input, Select, Spinner } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatSize } from "@/lib/format";
 import type { CategoryItem, FolderItem } from "@/lib/types";
 import { useAppStore } from "@/store";
 
@@ -386,7 +387,9 @@ function FolderRow({
   );
 }
 
-/** Содержимое папки: список раздач. */
+type FolderSort = "added" | "title";
+
+/** Содержимое папки: список раздач с поиском и сортировкой. */
 function FolderView({
   folder,
   onBack,
@@ -397,11 +400,34 @@ function FolderView({
   onChanged: () => void;
 }) {
   const openTopic = useAppStore((s) => s.openTopic);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<FolderSort>("added");
 
   const removeTopic = async (topicId: number) => {
     await api.removeTopicFromFolder(folder.id, topicId);
     onChanged();
   };
+  const removeExternal = async (externalId: string) => {
+    await api.removeExternalFromFolder(folder.id, externalId);
+    onChanged();
+  };
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = folder.topics.filter((t) => !q || t.title.toLowerCase().includes(q));
+    const sorted = [...filtered];
+    if (sort === "title") sorted.sort((a, b) => a.title.localeCompare(b.title, "ru"));
+    else sorted.sort((a, b) => b.addedAt - a.addedAt);
+    return sorted;
+  }, [folder.topics, query, sort]);
+
+  const visibleExternals = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return folder.externals.filter((e) => !q || e.name.toLowerCase().includes(q));
+  }, [folder.externals, query]);
+
+  const total = folder.topics.length + folder.externals.length;
+  const shown = visible.length + visibleExternals.length;
 
   return (
     <div className="flex h-full flex-col">
@@ -418,17 +444,49 @@ function FolderView({
         {folder.category && <CategoryBadge category={folder.category} />}
       </header>
 
+      {total > 0 && (
+        <div className="flex items-center gap-3 border-b border-border px-5 py-3">
+          <div className="relative max-w-xs flex-1">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-faint" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Поиск в папке…"
+              className="pl-9"
+            />
+          </div>
+          <Select
+            className="w-44 shrink-0"
+            value={sort}
+            onChange={setSort}
+            options={[
+              { value: "added", label: "Сначала новые" },
+              { value: "title", label: "По названию" },
+            ]}
+          />
+          <span className="ml-auto text-xs text-faint">
+            {shown} из {total}
+          </span>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {folder.topics.length === 0 ? (
+        {total === 0 ? (
           <EmptyState
             icon={<FolderIcon className="h-10 w-10" />}
             title="Папка пуста"
-            hint="Добавляйте раздачи кнопкой «В папку» на странице раздачи."
+            hint="Добавляйте раздачи кнопкой «В папку» на странице раздачи или своего торрента."
+          />
+        ) : shown === 0 ? (
+          <EmptyState
+            icon={<SearchIcon className="h-10 w-10" />}
+            title="Ничего не найдено"
+            hint="Попробуйте изменить запрос."
           />
         ) : (
           <div className="flex flex-col divide-y divide-border/60 px-3">
-            {folder.topics.map((topic) => (
-              <div key={topic.topicId} className="group flex items-center gap-3 py-2.5">
+            {visible.map((topic) => (
+              <div key={`t-${topic.topicId}`} className="group flex items-center gap-3 py-2.5">
                 <button
                   onClick={() => openTopic(topic.topicId)}
                   className="min-w-0 flex-1 text-left"
@@ -443,6 +501,25 @@ function FolderView({
                 <Button
                   variant="ghost"
                   onClick={() => void removeTopic(topic.topicId)}
+                  title="Убрать из папки"
+                  className="shrink-0 opacity-0 group-hover:opacity-100"
+                >
+                  <Trash2 className="h-4 w-4 text-danger" />
+                </Button>
+              </div>
+            ))}
+            {visibleExternals.map((ext) => (
+              <div key={`e-${ext.id}`} className="group flex items-center gap-3 py-2.5">
+                <FileIcon className="h-4 w-4 shrink-0 text-faint" />
+                <div className="min-w-0 flex-1">
+                  <span className="truncate text-sm font-medium text-text">{ext.name}</span>
+                  <div className="mt-0.5 text-xs text-faint">
+                    свой торрент · {formatSize(ext.size)}
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  onClick={() => void removeExternal(ext.id)}
                   title="Убрать из папки"
                   className="shrink-0 opacity-0 group-hover:opacity-100"
                 >

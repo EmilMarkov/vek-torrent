@@ -198,12 +198,22 @@ export interface FolderTopicItem {
   addedAt: number;
 }
 
+/** Сторонний .torrent, импортированный пользователем. */
+export interface ExternalTorrentItem {
+  id: string;
+  name: string;
+  infoHash: string;
+  size: number;
+  addedAt: number;
+}
+
 /** Пользовательская папка с раздачами. */
 export interface FolderItem {
   id: string;
   name: string;
   category: CategoryItem | null;
   topics: FolderTopicItem[];
+  externals: ExternalTorrentItem[];
   createdAt: number;
 }
 

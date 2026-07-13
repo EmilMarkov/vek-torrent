@@ -10,6 +10,7 @@ import { useDownloadsListener } from "@/hooks/useDownloads";
 import { useFavoritesListener } from "@/hooks/useLibrary";
 import { CategoriesPage } from "@/pages/CategoriesPage";
 import { DownloadsPage } from "@/pages/DownloadsPage";
+import { ExternalTorrentsPage } from "@/pages/ExternalTorrentsPage";
 import { FavoritesPage } from "@/pages/FavoritesPage";
 import { FoldersPage } from "@/pages/FoldersPage";
 import { HistoryPage } from "@/pages/HistoryPage";
@@ -42,6 +43,8 @@ export default function App() {
             <DownloadsPage />
           ) : route.kind === "favorites" ? (
             <FavoritesPage />
+          ) : route.kind === "external" ? (
+            <ExternalTorrentsPage />
           ) : route.kind === "folders" ? (
             <FoldersPage />
           ) : route.kind === "categories" ? (

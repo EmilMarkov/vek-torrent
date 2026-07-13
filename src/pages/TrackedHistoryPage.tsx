@@ -67,26 +67,25 @@ export function TrackedHistoryPage({ topicId, title }: { topicId: number; title:
         <FileClock className="h-5 w-5 shrink-0 text-accent" />
         <button
           onClick={() => openTopic(topicId)}
-          className="min-w-0 truncate text-left text-base font-semibold text-text hover:text-accent"
-          title="Открыть раздачу"
+          className="min-w-0 flex-1 truncate text-left text-base font-semibold text-text hover:text-accent"
+          title={currentTitle}
         >
           {currentTitle}
         </button>
-        <div className="ml-auto">
-          <Button
-            variant="primary"
-            disabled={!canPatch}
-            onClick={() => setPatchOpen(true)}
-            title={
-              canPatch
-                ? "Скачать только изменённые файлы"
-                : "Нужно минимум две сохранённые версии файлов"
-            }
-          >
-            <PackageOpen className="h-4 w-4" />
-            Скачать патч…
-          </Button>
-        </div>
+        <Button
+          variant="primary"
+          disabled={!canPatch}
+          onClick={() => setPatchOpen(true)}
+          className="shrink-0"
+          title={
+            canPatch
+              ? "Скачать только изменённые файлы"
+              : "Нужно минимум две сохранённые версии файлов"
+          }
+        >
+          <PackageOpen className="h-4 w-4" />
+          Скачать патч…
+        </Button>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -94,12 +93,7 @@ export function TrackedHistoryPage({ topicId, title }: { topicId: number; title:
           {/* Версии файлов. */}
           {(versions ?? []).length > 0 && (
             <section className="rounded-xl border border-border bg-surface p-4">
-              <h2 className="mb-1 text-sm font-semibold text-text">Версии файлов</h2>
-              <p className="mb-3 text-[11px] text-faint">
-                Снимки списка файлов раздачи. Первая (самая ранняя из сохранённых) — базовая точка
-                отсчёта для патчей; она сохраняется при добавлении в отслеживаемое и не означает
-                изменения. Патч можно посчитать от любой из версий.
-              </p>
+              <h2 className="mb-3 text-sm font-semibold text-text">Версии файлов</h2>
               <div className="flex flex-col divide-y divide-border/60">
                 {(versions ?? [])
                   .slice()

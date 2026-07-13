@@ -225,7 +225,41 @@ impl Engine {
 /// Список файлов из содержимого `.torrent`-файла — без сети и без запуска
 /// сессии (используется отслеживанием версий раздач).
 pub fn torrent_files(bytes: &[u8]) -> Result<Vec<EngineFile>> {
-    let torrent = librqbit::torrent_from_bytes::<librqbit::ByteBuf>(bytes)
+    Ok(parse_torrent(bytes)?.1)
+}
+
+/// Метаданные `.torrent`-файла: имя, info-hash (hex), суммарный размер и
+/// список файлов. Для импорта сторонних торрентов.
+pub fn torrent_meta(bytes: &[u8]) -> Result<TorrentMeta> {
+    let (torrent, files) = parse_torrent(bytes)?;
+    let name = torrent
+        .info
+        .name
+        .as_ref()
+        .map(|n| String::from_utf8_lossy(n).into_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "Без имени".to_owned());
+    Ok(TorrentMeta {
+        name,
+        info_hash: torrent.info_hash.as_string(),
+        total_size: files.iter().map(|f| f.size).sum(),
+        files,
+    })
+}
+
+/// Метаданные разобранного `.torrent`-файла.
+#[derive(Debug, Clone)]
+pub struct TorrentMeta {
+    pub name: String,
+    pub info_hash: String,
+    pub total_size: u64,
+    pub files: Vec<EngineFile>,
+}
+
+type ParsedTorrent = librqbit::TorrentMetaV1<librqbit::ByteBufOwned>;
+
+fn parse_torrent(bytes: &[u8]) -> Result<(ParsedTorrent, Vec<EngineFile>)> {
+    let torrent = librqbit::torrent_from_bytes::<librqbit::ByteBufOwned>(bytes)
         .map_err(|e| Error::InvalidSource(format!("не удалось разобрать .torrent: {e}")))?;
     let details = torrent
         .info
@@ -245,7 +279,7 @@ pub fn torrent_files(bytes: &[u8]) -> Result<Vec<EngineFile>> {
             size: detail.len,
         });
     }
-    Ok(files)
+    Ok((torrent, files))
 }
 
 /// Скорость (байт/с) из сглаженной оценки librqbit (в MiB/с).

@@ -8,8 +8,13 @@ import { clsx } from "clsx";
 import { toast } from "@/components/Toaster";
 import { Button } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
+import type { FolderItem } from "@/lib/types";
 
-export function FolderMenuButton({ topicId, title }: { topicId: number; title: string }) {
+/** Цель добавления в папку: раздача rutracker или сторонний торрент. */
+export type FolderTarget =
+  { kind: "topic"; topicId: number; title: string } | { kind: "external"; externalId: string };
+
+export function FolderMenuButton({ target }: { target: FolderTarget }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -30,9 +35,11 @@ export function FolderMenuButton({ topicId, title }: { topicId: number; title: s
     };
   }, [open]);
 
-  const inFolders = new Set(
-    (folders ?? []).filter((f) => f.topics.some((t) => t.topicId === topicId)).map((f) => f.id),
-  );
+  const contains = (f: FolderItem) =>
+    target.kind === "topic"
+      ? f.topics.some((t) => t.topicId === target.topicId)
+      : f.externals.some((e) => e.id === target.externalId);
+  const inFolders = new Set((folders ?? []).filter(contains).map((f) => f.id));
 
   const toggle = async (folderId: string, folderName: string) => {
     // Быстрые повторные клики принимают решение по устаревшему кешу —
@@ -40,13 +47,17 @@ export function FolderMenuButton({ topicId, title }: { topicId: number; title: s
     if (busy) return;
     setBusy(true);
     try {
-      if (inFolders.has(folderId)) {
-        await api.removeTopicFromFolder(folderId, topicId);
-        toast.info(`Убрано из папки «${folderName}»`);
+      const present = inFolders.has(folderId);
+      if (target.kind === "topic") {
+        if (present) await api.removeTopicFromFolder(folderId, target.topicId);
+        else await api.addTopicToFolder(folderId, target.topicId, target.title);
       } else {
-        await api.addTopicToFolder(folderId, topicId, title);
-        toast.success(`Добавлено в папку «${folderName}»`);
+        if (present) await api.removeExternalFromFolder(folderId, target.externalId);
+        else await api.addExternalToFolder(folderId, target.externalId);
       }
+      toast[present ? "info" : "success"](
+        present ? `Убрано из папки «${folderName}»` : `Добавлено в папку «${folderName}»`,
+      );
       await queryClient.invalidateQueries({ queryKey: ["folders"] });
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : String(error));

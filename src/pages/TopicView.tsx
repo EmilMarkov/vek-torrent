@@ -112,7 +112,7 @@ export function TopicView({ topicId }: { topicId: number }) {
               </Button>
               <div className="ml-auto flex items-center gap-2">
                 <ShareButton topicId={data.id} magnet={data.magnet} />
-                <FolderMenuButton topicId={data.id} title={data.title} />
+                <FolderMenuButton target={{ kind: "topic", topicId: data.id, title: data.title }} />
                 <Button
                   variant="ghost"
                   onClick={toggleFavorite}

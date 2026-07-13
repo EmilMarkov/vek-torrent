@@ -6,11 +6,12 @@ import { Check, Pencil, Plus, Tags, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { clsx } from "clsx";
 
-import { ForumTreePicker } from "@/components/ForumTreePicker";
+import { ForumTreePicker, useForumGroups } from "@/components/ForumTreePicker";
 import { PageHeader } from "@/components/PageHeader";
 import { toast } from "@/components/Toaster";
 import { Button, EmptyState, Input, Spinner } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
+import { effectiveCategoryForumIds } from "@/lib/filters";
 import type { CategoryItem } from "@/lib/types";
 
 /** Палитра цветов меток (в тон тёмной теме). */
@@ -153,18 +154,24 @@ function CreateCategory({ onDone }: { onDone: () => void }) {
 }
 
 function CategoryRow({ category, onDone }: { category: CategoryItem; onDone: () => void }) {
+  const forumGroups = useForumGroups();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(category.name);
   const [color, setColor] = useState(category.color);
   const [forumIds, setForumIds] = useState<number[]>(category.forumIds);
 
+  // Разделы, которые категория фактически охватывает: явно заданные или, для
+  // стандартной категории без настройки, разрешённые эвристикой по имени.
+  const effectiveForumIds = effectiveCategoryForumIds(forumGroups.data ?? [], category);
+
   // Синхронизация при входе в редактирование: состояние инициализируется на
-  // маунте и без этого не подхватило бы сохранённые разделы из обновлённых
-  // props (галочки в дереве оказывались пустыми).
+  // маунте и без этого не подхватило бы актуальные разделы из props. Для
+  // стандартной категории (пустой forumIds) показываем эвристический набор
+  // отмеченным — сохранение зафиксирует его как явный.
   const startEdit = () => {
     setName(category.name);
     setColor(category.color);
-    setForumIds(category.forumIds);
+    setForumIds(effectiveForumIds);
     setEditing(true);
   };
 

@@ -7,7 +7,14 @@
 import { create } from "zustand";
 
 export type MainView =
-  "search" | "downloads" | "favorites" | "folders" | "categories" | "history" | "settings";
+  | "search"
+  | "downloads"
+  | "favorites"
+  | "external"
+  | "folders"
+  | "categories"
+  | "history"
+  | "settings";
 
 export type Route =
   | { kind: MainView }
