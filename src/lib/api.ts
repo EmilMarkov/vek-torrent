@@ -62,6 +62,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 export const api = {
   getConfig: () => call<AppConfig>("get_config"),
   setConfig: (config: AppConfig) => call<void>("set_config", { config }),
+  regenerateApiToken: () => call<string>("regenerate_api_token"),
   checkMirrors: () => call<MirrorStatus[]>("check_mirrors"),
 
   sessionStatus: () => call<SessionInfo>("session_status"),

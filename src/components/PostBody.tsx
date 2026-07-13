@@ -16,36 +16,51 @@ import { useAppStore } from "@/store";
 export function PostBody({ html }: { html: string }) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Пост-обработка DOM после вставки HTML.
+  // Пост-обработка вставленного HTML: превращаем <var class="postImg"> в <img>
+  // (на трекере это делает их скрипт) и адаптируем авторские цвета к тёмной
+  // теме. Наблюдаем за контейнером через MutationObserver: если React по
+  // любой причине переустановит innerHTML (обновления соседних запросов после
+  // «Отслеживать» и т.п.), <var>-картинки вернутся в необработанном виде —
+  // обработчик повторно приведёт их к <img>, поэтому изображения не «теряются».
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
 
-    // 1. Изображения rutracker: <var class="postImg" title="URL"> → <img>.
-    //    (На трекере это делает их скрипт — у нас скриптов из поста нет.)
-    root.querySelectorAll("var.postImg").forEach((v) => {
-      const src = v.getAttribute("title");
-      if (!src) {
-        v.remove();
-        return;
-      }
-      const img = document.createElement("img");
-      img.src = src;
-      img.loading = "lazy";
-      img.className = v.className;
-      img.alt = "";
-      v.replaceWith(img);
-    });
+    const process = () => {
+      // Наши же замены (var→img) — это мутации childList; на время обработки
+      // отключаем наблюдателя, чтобы не зациклиться.
+      observer.disconnect();
 
-    // 2. Авторские цвета подобраны под светлую тему трекера — адаптируем
-    //    тёмные к тёмному фону (тон сохраняется, поднимается светлота).
-    root.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
-      const color = el.style.color;
-      if (!color) return;
-      const adapted = adaptColorForDark(color);
-      if (adapted === undefined) el.style.removeProperty("color");
-      else if (adapted !== color) el.style.color = adapted;
-    });
+      root.querySelectorAll("var.postImg").forEach((v) => {
+        const src = v.getAttribute("title");
+        if (!src) {
+          v.remove();
+          return;
+        }
+        const img = document.createElement("img");
+        img.src = src;
+        img.loading = "lazy";
+        img.className = v.className;
+        img.alt = "";
+        v.replaceWith(img);
+      });
+
+      // Адаптируем только не помеченные элементы (идемпотентно при повторах).
+      root.querySelectorAll<HTMLElement>("[style]:not([data-color-adapted])").forEach((el) => {
+        el.setAttribute("data-color-adapted", "");
+        const color = el.style.color;
+        if (!color) return;
+        const adapted = adaptColorForDark(color);
+        if (adapted === undefined) el.style.removeProperty("color");
+        else if (adapted !== color) el.style.color = adapted;
+      });
+
+      observer.observe(root, { childList: true, subtree: true });
+    };
+
+    const observer = new MutationObserver(process);
+    process();
+    return () => observer.disconnect();
   }, [html]);
 
   // Делегированный клик: спойлеры, лайтбокс, перехват ссылок.

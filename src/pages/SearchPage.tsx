@@ -18,7 +18,12 @@ import { SearchHistoryDropdown } from "@/components/SearchHistory";
 import { RESULT_COLS, ResultRow } from "@/components/ResultRow";
 import { Button, EmptyState, Input, Pagination, Spinner } from "@/components/ui";
 import { useSearch } from "@/hooks/useSearch";
-import { applyFilters, hasActiveFilters, type ClientFilters } from "@/lib/filters";
+import {
+  applyFilters,
+  hasActiveFilters,
+  hasClientFilters,
+  type ClientFilters,
+} from "@/lib/filters";
 import type { SortField, SortOrder } from "@/lib/types";
 
 export function SearchPage() {
@@ -103,6 +108,9 @@ export function SearchPage() {
               Найдено {search.totalFound}
               {search.totalFound >= 500 ? "+" : ""} · страница {search.page} из {search.pageCount} ·
               показано {visible.length}
+              {hasClientFilters(filters) &&
+                visible.length !== search.items.length &&
+                ` из ${search.items.length} на странице (фильтры действуют в пределах страницы)`}
             </span>
           </div>
         )}

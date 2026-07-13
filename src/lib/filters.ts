@@ -7,17 +7,24 @@ export interface ClientFilters {
   /**
    * Строка «живого» уточнения. Поддерживает слова и словосочетания в кавычках,
    * а также исключение через `-`: `1080p -ts -"Fallout Shelter"`.
+   * Применяется на клиенте в пределах текущей страницы.
    */
   refine: string;
-  /** Фильтр по автору раздачи (подстрока). */
+  /** Фильтр по автору раздачи — уходит на СЕРВЕР rutracker (`pn=`). */
   author: string;
   minSizeBytes: number | null;
   maxSizeBytes: number | null;
   minSeeders: number | null;
-  /** Только проверенные модератором. */
+  /** Только проверенные модератором (клиентский). */
   onlyApproved: boolean;
-  /** Ограничение по форумам (id); пусто — без ограничения. */
+  /** Разделы, выбранные вручную в дереве — уходят на СЕРВЕР (`f[]=`). */
   forumIds: number[];
+  /**
+   * Выбранные пользовательские категории (id) — их разделы добавляются к
+   * серверному фильтру. Выбор хранится явно: категории могут пересекаться
+   * по разделам, и выводить состояние чипа из набора разделов нельзя.
+   */
+  categoryIds: string[];
 }
 
 export const DEFAULT_FILTERS: ClientFilters = {
@@ -28,6 +35,7 @@ export const DEFAULT_FILTERS: ClientFilters = {
   minSeeders: null,
   onlyApproved: false,
   forumIds: [],
+  categoryIds: [],
 };
 
 interface ParsedRefine {
@@ -83,38 +91,43 @@ function matchesRefine(title: string, parsed: ParsedRefine): boolean {
 }
 
 /**
- * Применяет фильтры к списку результатов (чистая функция).
+ * Применяет КЛИЕНТСКИЕ фильтры к странице результатов (чистая функция).
  *
- * Порядок результатов не меняется: сортировка — серверная (rutracker),
- * управляется кликами по заголовкам таблицы и приходит уже отсортированной.
+ * Автор, разделы и категории сюда не входят — они уходят на сервер rutracker
+ * и учитываются в счётчике результатов и пагинации. Порядок не меняется:
+ * сортировка тоже серверная.
  */
 export function applyFilters(items: SearchResult[], filters: ClientFilters): SearchResult[] {
   const parsed = parseRefine(filters.refine);
-  const forumSet = new Set(filters.forumIds);
-  const author = filters.author.trim().toLowerCase();
 
   return items.filter((item) => {
     if (!matchesRefine(item.title, parsed)) return false;
-    if (author && !(item.author ?? "").toLowerCase().includes(author)) return false;
     if (filters.minSizeBytes !== null && item.size_bytes < filters.minSizeBytes) return false;
     if (filters.maxSizeBytes !== null && item.size_bytes > filters.maxSizeBytes) return false;
     if (filters.minSeeders !== null && item.seeders < filters.minSeeders) return false;
     if (filters.onlyApproved && item.approval !== "approved") return false;
-    if (forumSet.size > 0 && (item.forum === null || !forumSet.has(item.forum.id))) return false;
     return true;
   });
+}
+
+/** Активны ли фильтры, применяемые на клиенте в пределах страницы. */
+export function hasClientFilters(filters: ClientFilters): boolean {
+  return (
+    filters.refine.trim() !== "" ||
+    filters.minSizeBytes !== null ||
+    filters.maxSizeBytes !== null ||
+    filters.minSeeders !== null ||
+    filters.onlyApproved
+  );
 }
 
 /** Есть ли активные (непустые) фильтры — для индикации в UI. */
 export function hasActiveFilters(filters: ClientFilters): boolean {
   return (
-    filters.refine.trim() !== "" ||
+    hasClientFilters(filters) ||
     filters.author.trim() !== "" ||
-    filters.minSizeBytes !== null ||
-    filters.maxSizeBytes !== null ||
-    filters.minSeeders !== null ||
-    filters.onlyApproved ||
-    filters.forumIds.length > 0
+    filters.forumIds.length > 0 ||
+    filters.categoryIds.length > 0
   );
 }
 

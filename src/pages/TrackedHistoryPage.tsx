@@ -94,7 +94,12 @@ export function TrackedHistoryPage({ topicId, title }: { topicId: number; title:
           {/* Версии файлов. */}
           {(versions ?? []).length > 0 && (
             <section className="rounded-xl border border-border bg-surface p-4">
-              <h2 className="mb-3 text-sm font-semibold text-text">Версии файлов</h2>
+              <h2 className="mb-1 text-sm font-semibold text-text">Версии файлов</h2>
+              <p className="mb-3 text-[11px] text-faint">
+                Снимки списка файлов раздачи. Первая (самая ранняя из сохранённых) — базовая точка
+                отсчёта для патчей; она сохраняется при добавлении в отслеживаемое и не означает
+                изменения. Патч можно посчитать от любой из версий.
+              </p>
               <div className="flex flex-col divide-y divide-border/60">
                 {(versions ?? [])
                   .slice()
@@ -105,6 +110,7 @@ export function TrackedHistoryPage({ topicId, title }: { topicId: number; title:
                         v{v.index + 1}
                       </Badge>
                       <span className="text-text">{formatDateTime(v.at)}</span>
+                      {v.index === 0 && <span className="text-xs text-faint">самая ранняя</span>}
                       <span className="ml-auto text-xs text-faint">
                         файлов: {v.fileCount} · {formatSize(v.totalSize)}
                       </span>

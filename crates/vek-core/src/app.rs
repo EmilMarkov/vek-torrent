@@ -48,6 +48,10 @@ pub struct AppCore {
     /// Сериализует проверки обновлений отслеживаемого: параллельные проходы
     /// (фон + ручная кнопка + внешний API) дублировали бы события истории.
     favorites_check_lock: tokio::sync::Mutex<()>,
+    /// Раздачи, для которых уже пытались сохранить базовую версию файлов в
+    /// этом запуске: не перекачиваем `.torrent` на каждой проверке, если
+    /// сохранение раз за разом падает (лимит скачиваний).
+    bootstrap_attempted: RwLock<std::collections::HashSet<u64>>,
 }
 
 impl AppCore {
@@ -75,6 +79,7 @@ impl AppCore {
             api_running: AtomicBool::new(false),
             failover_lock: tokio::sync::Mutex::new(()),
             favorites_check_lock: tokio::sync::Mutex::new(()),
+            bootstrap_attempted: RwLock::new(std::collections::HashSet::new()),
         }))
     }
 
@@ -142,6 +147,19 @@ impl AppCore {
         }
         *self.config.write().expect("config lock") = new_config;
         Ok(())
+    }
+
+    /// Генерирует новый Bearer-токен внешнего API и сохраняет конфигурацию.
+    /// Старый токен перестаёт действовать после перезапуска API.
+    ///
+    /// Read-modify-persist выполняется под замком конфигурации целиком —
+    /// чтобы параллельный `set_config` не откатил только что выданный токен.
+    pub fn regenerate_api_token(&self) -> Result<String> {
+        let token = generate_token();
+        let mut guard = self.config.write().expect("config lock");
+        guard.api.token = token.clone();
+        guard.save(&config::config_file(&self.app_dir))?;
+        Ok(token)
     }
 
     fn rutracker(&self) -> rutracker::Client {
@@ -780,13 +798,31 @@ impl AppCore {
                 old.signature != signature
             };
 
-            // Файлы сверяются только при обнаруженном обновлении: скачивание
-            // .torrent на каждую проверку тратило бы дневной лимит rutracker.
-            if updated && config.favorites.track_files && topic.has_torrent_file {
-                match self.record_file_version(id).await {
-                    Ok(Some(diff)) => changes.push(diff),
-                    Ok(None) => {}
-                    Err(e) => tracing::warn!("версия файлов раздачи {id}: {e}"),
+            // Файлы сверяются при обнаруженном обновлении (скачивание .torrent
+            // на каждую проверку тратило бы дневной лимит rutracker). Если у
+            // раздачи ещё нет ни одной версии (добавлена до включения
+            // отслеживания файлов) — однократно сохраняем базовую. Попытку
+            // помечаем, чтобы при постоянной ошибке не перекачивать .torrent
+            // каждую проверку (до перезапуска приложения).
+            if config.favorites.track_files && topic.has_torrent_file {
+                let need_bootstrap = TrackedVersions::load(&self.app_dir, id).versions.is_empty()
+                    && !self
+                        .bootstrap_attempted
+                        .read()
+                        .expect("bootstrap lock")
+                        .contains(&id);
+                if updated || need_bootstrap {
+                    if need_bootstrap {
+                        self.bootstrap_attempted
+                            .write()
+                            .expect("bootstrap lock")
+                            .insert(id);
+                    }
+                    match self.record_file_version(id).await {
+                        Ok(Some(diff)) => changes.push(diff),
+                        Ok(None) => {}
+                        Err(e) => tracing::warn!("версия файлов раздачи {id}: {e}"),
+                    }
                 }
             }
 

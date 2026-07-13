@@ -50,6 +50,13 @@ pub async fn set_config(state: State<'_, AppState>, config: AppConfig) -> Comman
     Ok(())
 }
 
+/// Генерирует новый токен внешнего API (старый перестаёт действовать
+/// после перезапуска API).
+#[tauri::command]
+pub fn regenerate_api_token(state: State<'_, AppState>) -> CommandResult<String> {
+    Ok(state.core.regenerate_api_token()?)
+}
+
 // ── Сессия rutracker ────────────────────────────────────────────────────
 
 #[tauri::command]

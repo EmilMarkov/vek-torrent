@@ -158,6 +158,16 @@ function CategoryRow({ category, onDone }: { category: CategoryItem; onDone: () 
   const [color, setColor] = useState(category.color);
   const [forumIds, setForumIds] = useState<number[]>(category.forumIds);
 
+  // Синхронизация при входе в редактирование: состояние инициализируется на
+  // маунте и без этого не подхватило бы сохранённые разделы из обновлённых
+  // props (галочки в дереве оказывались пустыми).
+  const startEdit = () => {
+    setName(category.name);
+    setColor(category.color);
+    setForumIds(category.forumIds);
+    setEditing(true);
+  };
+
   const save = async () => {
     if (!name.trim()) return;
     try {
@@ -225,7 +235,7 @@ function CategoryRow({ category, onDone }: { category: CategoryItem; onDone: () 
       </span>
       <Button
         variant="ghost"
-        onClick={() => setEditing(true)}
+        onClick={startEdit}
         title="Изменить (название, цвет, разделы)"
         className="opacity-0 group-hover:opacity-100"
       >

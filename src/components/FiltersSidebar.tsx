@@ -140,8 +140,8 @@ export function FiltersSidebar({ filters, onChange }: Props) {
           categories={userCategories ?? []}
           groups={forumGroups.data ?? []}
           groupsLoading={forumGroups.isLoading || !forumGroups.data}
-          forumIds={filters.forumIds}
-          onChange={(forumIds) => update({ forumIds })}
+          selectedIds={filters.categoryIds}
+          onChange={(categoryIds) => update({ categoryIds })}
         />
 
         <ForumTreePicker
@@ -154,49 +154,30 @@ export function FiltersSidebar({ filters, onChange }: Props) {
 }
 
 /**
- * Чипы пользовательских категорий: выбирают все разделы rutracker категории.
- * Наборы разделов настраиваются на странице «Категории».
+ * Чипы пользовательских категорий. Выбор хранится явно (id категории):
+ * пересечение разделов между категориями не влияет на состояние чипов,
+ * а их разделы добавляются к серверному фильтру поиска.
  */
 function CategoryChips({
   categories,
   groups,
   groupsLoading,
-  forumIds,
+  selectedIds,
   onChange,
 }: {
   categories: CategoryItem[];
   groups: ForumGroup[];
   groupsLoading: boolean;
-  forumIds: number[];
-  onChange: (ids: number[]) => void;
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
 }) {
   if (categories.length === 0) return null;
-  const selected = new Set(forumIds);
-
-  const idsOf = (category: CategoryItem) => effectiveCategoryForumIds(groups, category);
-  const isActive = (category: CategoryItem) => {
-    const ids = idsOf(category);
-    return ids.length > 0 && ids.every((id) => selected.has(id));
-  };
+  const selected = new Set(selectedIds);
 
   const toggle = (category: CategoryItem) => {
-    const ids = idsOf(category);
-    if (ids.length === 0) return;
     const next = new Set(selected);
-    if (isActive(category)) {
-      // Категории могут пересекаться по разделам: при снятии не трогаем
-      // разделы, принадлежащие другим активным категориям.
-      const keep = new Set(
-        categories.filter((c) => c.id !== category.id && isActive(c)).flatMap((c) => idsOf(c)),
-      );
-      for (const id of ids) {
-        if (!keep.has(id)) next.delete(id);
-      }
-    } else {
-      for (const id of ids) {
-        next.add(id);
-      }
-    }
+    if (next.has(category.id)) next.delete(category.id);
+    else next.add(category.id);
     onChange([...next]);
   };
 
@@ -205,13 +186,13 @@ function CategoryChips({
       <span className="text-[11px] font-medium text-faint">Категория</span>
       <div className="flex flex-wrap gap-1.5">
         {categories.map((category) => {
-          const ids = idsOf(category);
-          const active = ids.length > 0 && ids.every((id) => selected.has(id));
+          const ids = effectiveCategoryForumIds(groups, category);
+          const active = selected.has(category.id);
           return (
             <button
               key={category.id}
               onClick={() => toggle(category)}
-              disabled={ids.length === 0}
+              disabled={ids.length === 0 && !active}
               title={
                 ids.length > 0
                   ? `Разделов: ${ids.length}`

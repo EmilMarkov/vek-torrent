@@ -1,15 +1,22 @@
 // Lazy-search с серверной пагинацией: дебаунс запроса, отмена устаревших
 // ответов, постраничная навигация (rutracker отдаёт по 50, максимум 500).
 //
+// Фильтры по автору, разделам и категориям — СЕРВЕРНЫЕ (`pn=`, `f[]=`):
+// их изменение перезапускает поиск, поэтому счётчик результатов и пагинация
+// честные. Клиентскими остаются только уточнение/размер/сиды/проверенные —
+// они действуют в пределах загруженной страницы.
+//
 // Состояние хранится в zustand-сторе (а не в локальном useState страницы),
 // поэтому переживает уход со страницы «Поиск» и возврат по кнопке «Назад» —
 // запрос, результаты и позиция прокрутки сохраняются.
 
-import { useCallback, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo } from "react";
 import { create } from "zustand";
 
+import { useForumGroups } from "@/components/ForumTreePicker";
 import { api, ApiError } from "@/lib/api";
-import { DEFAULT_FILTERS, type ClientFilters } from "@/lib/filters";
+import { DEFAULT_FILTERS, effectiveCategoryForumIds, type ClientFilters } from "@/lib/filters";
 import { pushSearchHistory } from "@/lib/searchHistory";
 import type { SearchResult, SortField, SortOrder } from "@/lib/types";
 
@@ -22,7 +29,6 @@ const SERVER_CAP = 500;
 
 interface SearchStore {
   query: string;
-  author: string;
   /** Серверная сортировка rutracker (клик по заголовку таблицы). */
   sort: SortField;
   order: SortOrder;
@@ -34,16 +40,15 @@ interface SearchStore {
   loading: boolean;
   error: ApiError | null;
   hasSearched: boolean;
-  /** Ключ (запрос+автор) последнего успешного поиска: защита от повторного
-   *  запуска того же поиска при возврате на страницу. */
+  /** Ключ (запрос+серверные фильтры) последнего успешного поиска: защита от
+   *  повторного запуска того же поиска при возврате на страницу. */
   lastSearchedKey: string;
   /** Сохранённая позиция прокрутки списка результатов. */
   scrollTop: number;
-  /** Клиентские фильтры (сохраняются между переходами). */
+  /** Фильтры (сохраняются между переходами). */
   filters: ClientFilters;
 
   setQuery: (query: string) => void;
-  setAuthor: (author: string) => void;
   setScrollTop: (scrollTop: number) => void;
   setFilters: (filters: ClientFilters) => void;
 }
@@ -54,10 +59,16 @@ interface SearchStore {
 let runId = 0;
 let searchId: string | null = null;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+// Актуальный серверный набор разделов (категории + дерево) — читается
+// fetchPage в момент запроса.
+let resolvedForums: number[] = [];
+// Ключ параметров серверной сессии (запрос+автор+разделы), с которыми она
+// РЕАЛЬНО создана. Стр. пагинации внутри сессии сохраняют этот ключ, а не
+// текущее (возможно, уже изменившееся) состояние разделов.
+let sessionKey = "";
 
 const useSearchStore = create<SearchStore>((set) => ({
   query: "",
-  author: "",
   sort: "seeders",
   order: "desc",
   items: [],
@@ -70,7 +81,6 @@ const useSearchStore = create<SearchStore>((set) => ({
   scrollTop: 0,
   filters: DEFAULT_FILTERS,
   setQuery: (query) => set({ query }),
-  setAuthor: (author) => set({ author }),
   setScrollTop: (scrollTop) => set({ scrollTop }),
   setFilters: (filters) => set({ filters }),
 }));
@@ -78,10 +88,58 @@ const useSearchStore = create<SearchStore>((set) => ({
 export function useSearch() {
   const store = useSearchStore();
 
+  // Данные для разворачивания категорий в наборы разделов rutracker.
+  const forumGroups = useForumGroups();
+  const { data: userCategories } = useQuery({
+    queryKey: ["user-categories"],
+    queryFn: api.userCategories,
+  });
+
+  // Серверный набор разделов: выбранные категории + ручной выбор в дереве.
+  const serverForums = useMemo(() => {
+    const ids = new Set<number>(store.filters.forumIds);
+    for (const categoryId of store.filters.categoryIds) {
+      const category = (userCategories ?? []).find((c) => c.id === categoryId);
+      if (!category) continue;
+      for (const id of effectiveCategoryForumIds(forumGroups.data ?? [], category)) {
+        ids.add(id);
+      }
+    }
+    return [...ids].sort((a, b) => a - b);
+  }, [store.filters.forumIds, store.filters.categoryIds, userCategories, forumGroups.data]);
+  resolvedForums = serverForums;
+
+  // Готовность серверных фильтров: пока категории не разрешены в разделы,
+  // поиск с ними уходить не должен (иначе выдача — без фильтра категории).
+  // Категория с явными forum_ids дерева не требует; эвристическая — требует.
+  const filtersReady = useMemo(() => {
+    if (store.filters.categoryIds.length === 0) return true;
+    if (userCategories === undefined) return false; // список категорий грузится
+    const needsTree = store.filters.categoryIds.some((id) => {
+      const c = userCategories.find((x) => x.id === id);
+      return c !== undefined && c.forumIds.length === 0;
+    });
+    // Дерево нужно только эвристическим категориям; при ошибке загрузки —
+    // работаем best-effort с тем, что есть.
+    return !needsTree || forumGroups.data !== undefined || forumGroups.isError;
+  }, [store.filters.categoryIds, userCategories, forumGroups.data, forumGroups.isError]);
+
+  // Отсев «призрачных» категорий: id удалённой категории не должен висеть в
+  // фильтрах (иначе фильтры выглядят активными без видимого выбора).
+  useEffect(() => {
+    if (!userCategories) return;
+    const known = new Set(userCategories.map((c) => c.id));
+    const current = useSearchStore.getState().filters;
+    const pruned = current.categoryIds.filter((id) => known.has(id));
+    if (pruned.length !== current.categoryIds.length) {
+      useSearchStore.setState({ filters: { ...current, categoryIds: pruned } });
+    }
+  }, [userCategories]);
+
   /**
    * Загружает страницу результатов. `newSession` начинает новую серверную
-   * сессию поиска (rutracker фиксирует запрос и порядок в `search_id`,
-   * поэтому смена запроса/сортировки требует сброса токена).
+   * сессию поиска (rutracker фиксирует запрос, фильтры и порядок в
+   * `search_id`, поэтому их смена требует сброса токена).
    *
    * Если страница внутри существующей сессии не загрузилась (токен истёк на
    * сервере), делается одна автоматическая попытка через новую сессию —
@@ -93,12 +151,19 @@ export function useSearch() {
   ): Promise<void> {
     const state = useSearchStore.getState();
     const currentQuery = state.query.trim();
-    const currentAuthor = state.author.trim();
+    const currentAuthor = state.filters.author.trim();
     if (!currentQuery && !currentAuthor) return;
 
-    // Токен старой сессии не должен пережить смену запроса: иначе после
-    // неудачного нового поиска пагинация подставит результаты старого.
-    if (newSession) searchId = null;
+    // Снимок разделов на момент запроса: и `forums`, и ключ сессии считаем от
+    // одного значения (module-var может измениться между рендерами).
+    const requestForums = resolvedForums;
+
+    // Токен старой сессии не должен пережить смену запроса; ключ сессии
+    // фиксируем параметрами, с которыми она реально создаётся.
+    if (newSession) {
+      searchId = null;
+      sessionKey = searchKey(currentQuery, currentAuthor, requestForums);
+    }
 
     const id = ++runId;
     useSearchStore.setState({ loading: true, error: null, page: targetPage });
@@ -106,7 +171,7 @@ export function useSearch() {
     try {
       const page = await api.search({
         query: currentQuery,
-        forums: [],
+        forums: requestForums,
         author: currentAuthor || null,
         sort: state.sort,
         order: state.order,
@@ -124,7 +189,9 @@ export function useSearch() {
         loading: false,
         error: null,
         hasSearched: true,
-        lastSearchedKey: `${currentQuery}\n${currentAuthor}`,
+        // Ключ сессии, а не текущих разделов: страница внутри сессии не должна
+        // «запечатывать» ключ с параметрами, которых в этой сессии не было.
+        lastSearchedKey: sessionKey,
         scrollTop: 0,
       });
     } catch (error) {
@@ -143,10 +210,12 @@ export function useSearch() {
     }
   }, []);
 
-  // Дебаунс: новый поиск через паузу после последнего изменения запроса.
+  // Дебаунс: новый поиск через паузу после изменения запроса или серверных
+  // фильтров (автор, разделы, категории).
+  const author = store.filters.author.trim();
+  const forumsKey = serverForums.join(",");
   useEffect(() => {
-    const key = `${store.query.trim()}\n${store.author.trim()}`;
-    if (!store.query.trim() && !store.author.trim()) {
+    if (!store.query.trim() && !author) {
       runId++;
       searchId = null;
       useSearchStore.setState({
@@ -161,12 +230,17 @@ export function useSearch() {
       });
       return;
     }
-    // Возврат на страницу с неизменным запросом: результаты, номер страницы
-    // и позиция прокрутки уже в сторе — повторный поиск не нужен.
+    // Не запускаем поиск, пока категории не разрешились в разделы: иначе
+    // выдача уйдёт без фильтра категории. Когда данные догрузятся, serverForums
+    // изменится → эффект перезапустится.
+    if (!filtersReady) return;
+    // Возврат на страницу с неизменными параметрами: результаты, номер
+    // страницы и позиция прокрутки уже в сторе — повторный поиск не нужен.
+    const key = searchKey(store.query.trim(), author, serverForums);
     if (key === useSearchStore.getState().lastSearchedKey) return;
     debounceTimer = setTimeout(() => void fetchPage(1, true), DEBOUNCE_MS);
     return () => clearTimeout(debounceTimer);
-  }, [store.query, store.author, fetchPage]);
+  }, [store.query, author, forumsKey, filtersReady, serverForums, fetchPage]);
 
   // Смена сортировки — новая серверная сессия сразу, без дебаунса.
   // Взведённый таймер сбрасываем, чтобы не улетел дублирующий запрос.
@@ -195,8 +269,6 @@ export function useSearch() {
   return {
     query: store.query,
     setQuery: store.setQuery,
-    author: store.author,
-    setAuthor: store.setAuthor,
     sort: store.sort,
     order: store.order,
     setSort,
@@ -217,4 +289,9 @@ export function useSearch() {
       void fetchPage(state.page, state.page === 1);
     },
   };
+}
+
+/** Ключ серверных параметров поиска (для дедупликации перезапусков). */
+function searchKey(query: string, author: string, forums: number[]): string {
+  return `${query}\n${author}\n${forums.join(",")}`;
 }

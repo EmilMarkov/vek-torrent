@@ -14,6 +14,7 @@ import {
   LogOut,
   Plug,
   RefreshCw,
+  RotateCw,
   UserRound,
   Wifi,
   CheckCircle2,
@@ -489,7 +490,10 @@ function SettingsForm({ initial }: { initial: AppConfig }) {
                     />
                   </div>
                 </Row>
-                <Row label="Токен доступа" hint="Bearer-токен для заголовка Authorization">
+                <Row
+                  label="Токен доступа"
+                  hint="Bearer-токен для заголовка Authorization. Новый токен действует после «Применить настройки API»."
+                >
                   <div className="flex gap-2">
                     <Input value={config.api.token} readOnly className="font-mono text-xs" />
                     <Button
@@ -498,8 +502,25 @@ function SettingsForm({ initial }: { initial: AppConfig }) {
                         void navigator.clipboard.writeText(config.api.token);
                         toast.success("Токен скопирован");
                       }}
+                      title="Скопировать токен"
                     >
                       <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={async () => {
+                        try {
+                          const token = await api.regenerateApiToken();
+                          patch((c) => ({ ...c, api: { ...c.api, token } }));
+                          await queryClient.invalidateQueries({ queryKey: ["config"] });
+                          toast.success("Токен перегенерирован");
+                        } catch (error) {
+                          toast.error(error instanceof ApiError ? error.message : String(error));
+                        }
+                      }}
+                      title="Перегенерировать токен (старый перестанет действовать)"
+                    >
+                      <RotateCw className="h-4 w-4" />
                     </Button>
                   </div>
                 </Row>

@@ -1,4 +1,5 @@
-// Страница «Папки»: пользовательские папки с раздачами и категориями-метками.
+// Страница «Папки» — в структуре страницы поиска: строка поиска сверху,
+// список во всю ширину, фильтры в правом сайдбаре.
 //
 // Категория папки помечается визуально: цветная иконка папки и бейдж с
 // названием категории в её цвете.
@@ -8,15 +9,16 @@ import {
   ArrowLeft,
   Check,
   Folder as FolderIcon,
+  FolderPlus,
   Pencil,
-  Plus,
   Search as SearchIcon,
+  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { clsx } from "clsx";
 
-import { PageHeader } from "@/components/PageHeader";
 import { toast } from "@/components/Toaster";
 import { Button, EmptyState, Input, Select, Spinner } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
@@ -31,7 +33,10 @@ export function FoldersPage() {
     queryKey: ["user-categories"],
     queryFn: api.userCategories,
   });
+
   const [openedId, setOpenedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
 
   // Фильтры списка папок.
   const [query, setQuery] = useState("");
@@ -56,42 +61,46 @@ export function FoldersPage() {
     return <FolderView folder={opened} onBack={() => setOpenedId(null)} onChanged={refresh} />;
   }
 
-  const filterOptions = [
-    { value: "", label: "Все категории" },
-    { value: "none", label: "Без категории" },
-    ...(categories ?? []).map((c) => ({ value: c.id, label: c.name })),
-  ];
+  const filtersActive = categoryFilter !== "";
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Папки" />
-
-      {all.length > 0 && (
-        <div className="flex items-center gap-3 border-b border-border px-5 py-3">
-          <div className="relative max-w-xs flex-1">
-            <SearchIcon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-faint" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Фильтр по названию…"
-              className="pl-9"
-            />
-          </div>
-          <Select
-            className="w-48 shrink-0"
-            value={categoryFilter}
-            onChange={setCategoryFilter}
-            options={filterOptions}
+      <header className="flex items-center gap-2 border-b border-border px-5 py-4">
+        <div className="relative flex-1">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-faint" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск по папкам…"
+            className="pl-9"
           />
-          <span className="ml-auto text-xs text-faint">
-            {visible.length} из {all.length}
-          </span>
         </div>
-      )}
+        <Button variant="primary" onClick={() => setCreating((v) => !v)}>
+          <FolderPlus className="h-4 w-4" />
+          Новая папка
+        </Button>
+        <Button
+          variant={showFilters || filtersActive ? "primary" : "secondary"}
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Фильтры
+        </Button>
+      </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-2xl flex-col gap-4 px-6 py-5">
-          <CreateFolder categories={categories ?? []} onDone={refresh} />
+      <div className="flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-y-auto">
+          {creating && (
+            <div className="border-b border-border px-5 py-4">
+              <CreateFolder
+                categories={categories ?? []}
+                onDone={() => {
+                  setCreating(false);
+                  refresh();
+                }}
+              />
+            </div>
+          )}
 
           {isLoading ? (
             <div className="flex justify-center py-16">
@@ -110,7 +119,7 @@ export function FoldersPage() {
               hint="Попробуйте изменить фильтры."
             />
           ) : (
-            <div className="flex flex-col divide-y divide-border/60 rounded-xl border border-border bg-surface">
+            <div className="flex flex-col divide-y divide-border/60 px-3">
               {visible.map((folder) => (
                 <FolderRow
                   key={folder.id}
@@ -123,8 +132,84 @@ export function FoldersPage() {
             </div>
           )}
         </div>
+
+        {showFilters && (
+          <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-l border-border bg-surface/40">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <span className="text-sm font-semibold text-text">Фильтры</span>
+              {filtersActive && (
+                <button
+                  onClick={() => setCategoryFilter("")}
+                  className="inline-flex items-center gap-1 text-xs text-faint hover:text-danger"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Сбросить
+                </button>
+              )}
+            </div>
+            <div className="flex flex-col gap-4 p-4">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] font-medium text-faint">Категория</span>
+                <div className="flex flex-wrap gap-1.5">
+                  <FilterChip
+                    label="Без категории"
+                    active={categoryFilter === "none"}
+                    onClick={() => setCategoryFilter(categoryFilter === "none" ? "" : "none")}
+                  />
+                  {(categories ?? []).map((category) => (
+                    <FilterChip
+                      key={category.id}
+                      label={category.name}
+                      color={category.color}
+                      active={categoryFilter === category.id}
+                      onClick={() =>
+                        setCategoryFilter(categoryFilter === category.id ? "" : category.id)
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+              <span className="text-xs text-faint">
+                Показано {visible.length} из {all.length}
+              </span>
+            </div>
+          </aside>
+        )}
       </div>
     </div>
+  );
+}
+
+/** Чип фильтра по категории (одиночный выбор). */
+function FilterChip({
+  label,
+  color,
+  active,
+  onClick,
+}: {
+  label: string;
+  color?: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={
+        active
+          ? "rounded-full px-3 py-1 text-xs font-medium"
+          : "rounded-full border border-border px-3 py-1 text-xs text-muted hover:border-border-strong hover:text-text"
+      }
+      style={
+        active
+          ? color
+            ? { backgroundColor: `${color}26`, color }
+            : { backgroundColor: "var(--color-accent-soft)", color: "var(--color-accent)" }
+          : undefined
+      }
+    >
+      {label}
+    </button>
   );
 }
 
@@ -172,26 +257,23 @@ function CreateFolder({ categories, onDone }: { categories: CategoryItem[]; onDo
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4">
-      <span className="text-sm font-semibold text-text">Новая папка</span>
-      <div className="flex gap-2">
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void create()}
-          placeholder="Название папки"
-        />
-        <Select
-          className="w-44 shrink-0"
-          value={categoryId}
-          onChange={setCategoryId}
-          options={categoryOptions(categories)}
-        />
-        <Button variant="primary" loading={saving} onClick={() => void create()}>
-          <Plus className="h-4 w-4" />
-          Создать
-        </Button>
-      </div>
+    <div className="flex gap-2">
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && void create()}
+        placeholder="Название папки"
+        autoFocus
+      />
+      <Select
+        className="w-44 shrink-0"
+        value={categoryId}
+        onChange={setCategoryId}
+        options={categoryOptions(categories)}
+      />
+      <Button variant="primary" loading={saving} onClick={() => void create()}>
+        Создать
+      </Button>
     </div>
   );
 }
@@ -210,6 +292,14 @@ function FolderRow({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(folder.name);
   const [categoryId, setCategoryId] = useState(folder.category?.id ?? "");
+
+  // Синхронизация при входе в редактирование (состояние с маунта могло
+  // устареть после обновления props).
+  const startEdit = () => {
+    setName(folder.name);
+    setCategoryId(folder.category?.id ?? "");
+    setEditing(true);
+  };
 
   const save = async () => {
     if (!name.trim()) return;
@@ -230,7 +320,7 @@ function FolderRow({
 
   if (editing) {
     return (
-      <div className="flex items-center gap-2 px-4 py-3">
+      <div className="flex items-center gap-2 py-2.5">
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -246,15 +336,7 @@ function FolderRow({
         <Button variant="primary" onClick={() => void save()} title="Сохранить">
           <Check className="h-4 w-4" />
         </Button>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setEditing(false);
-            setName(folder.name);
-            setCategoryId(folder.category?.id ?? "");
-          }}
-          title="Отмена"
-        >
+        <Button variant="ghost" onClick={() => setEditing(false)} title="Отмена">
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -262,7 +344,7 @@ function FolderRow({
   }
 
   return (
-    <div className="group flex items-center gap-3 px-4 py-3">
+    <div className="group flex items-center gap-3 py-2.5">
       {/* Цвет иконки папки — визуальная пометка категории. */}
       <FolderIcon
         className="h-5 w-5 shrink-0"
@@ -275,27 +357,31 @@ function FolderRow({
           </span>
           {folder.category && <CategoryBadge category={folder.category} />}
         </div>
-        <div className="mt-0.5 text-xs text-faint">
-          {folder.topics.length === 0 ? "пусто" : `раздач: ${folder.topics.length}`} · создана{" "}
-          {formatDate(folder.createdAt)}
-        </div>
       </button>
-      <Button
-        variant="ghost"
-        onClick={() => setEditing(true)}
-        title="Переименовать / категория"
-        className="opacity-0 group-hover:opacity-100"
-      >
-        <Pencil className="h-4 w-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        onClick={() => void remove()}
-        title="Удалить папку"
-        className="opacity-0 group-hover:opacity-100"
-      >
-        <Trash2 className="h-4 w-4 text-danger" />
-      </Button>
+      <span className={clsx("w-24 shrink-0 text-right text-xs text-muted")}>
+        {folder.topics.length === 0 ? "пусто" : `раздач: ${folder.topics.length}`}
+      </span>
+      <span className="w-24 shrink-0 text-right text-xs text-faint max-lg:hidden">
+        {formatDate(folder.createdAt)}
+      </span>
+      <div className="flex w-20 shrink-0 justify-end gap-1">
+        <Button
+          variant="ghost"
+          onClick={startEdit}
+          title="Переименовать / категория"
+          className="opacity-0 group-hover:opacity-100"
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => void remove()}
+          title="Удалить папку"
+          className="opacity-0 group-hover:opacity-100"
+        >
+          <Trash2 className="h-4 w-4 text-danger" />
+        </Button>
+      </div>
     </div>
   );
 }

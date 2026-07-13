@@ -166,6 +166,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::set_config,
+            commands::regenerate_api_token,
             commands::check_mirrors,
             commands::session_status,
             commands::login,

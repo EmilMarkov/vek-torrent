@@ -97,11 +97,6 @@ describe("applyFilters", () => {
     expect(out).toHaveLength(2);
   });
 
-  it("ограничивает по форуму", () => {
-    const out = applyFilters(items, { ...DEFAULT_FILTERS, forumIds: [20] });
-    expect(out.map((r) => r.topic_id)).toEqual([3]);
-  });
-
   it("сохраняет серверный порядок результатов", () => {
     // Сортировка — серверная; фильтры не должны переупорядочивать выдачу.
     const out = applyFilters(items, { ...DEFAULT_FILTERS, refine: "-beta" });
@@ -119,13 +114,14 @@ describe("applyFilters", () => {
     expect(out.map((r) => r.topic_id)).toEqual([1, 3]);
   });
 
-  it("фильтрует по автору", () => {
-    const list = [
-      result({ topic_id: 1, author: "mint_keeper" }),
-      result({ topic_id: 2, author: "someone_else" }),
-    ];
-    const out = applyFilters(list, { ...DEFAULT_FILTERS, author: "mint" });
-    expect(out.map((r) => r.topic_id)).toEqual([1]);
+  it("автор и разделы не фильтруются на клиенте (уходят на сервер)", () => {
+    const out = applyFilters(items, {
+      ...DEFAULT_FILTERS,
+      author: "кто-то",
+      forumIds: [999],
+      categoryIds: ["x"],
+    });
+    expect(out).toHaveLength(3);
   });
 });
 

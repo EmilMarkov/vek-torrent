@@ -51,7 +51,9 @@ export function ResultRow({ result, onPatchFilters }: Props) {
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-faint">
           {result.forum && (
             <button
-              onClick={() => onPatchFilters({ forumIds: [result.forum!.id] })}
+              // Сбрасываем выбранные категории: их разделы объединяются с
+              // ручным выбором, и без сброса выдача не сузилась бы до раздела.
+              onClick={() => onPatchFilters({ forumIds: [result.forum!.id], categoryIds: [] })}
               className="max-w-[50%] truncate hover:text-accent hover:underline"
               title={`Показать только раздел «${result.forum.name}»`}
             >
