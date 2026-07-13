@@ -227,14 +227,15 @@ pub fn tracked_versions(state: State<'_, AppState>, topic_id: u64) -> Vec<FileVe
     state.core.tracked_versions(topic_id)
 }
 
-/// Изменения файлов между версией пользователя и актуальной раздачей.
+/// Изменения файлов между версией пользователя и последней сохранённой.
+/// Версия адресуется временем фиксации (`base_at`) — стабильно к вытеснению.
 #[tauri::command]
-pub async fn compute_patch(
+pub fn compute_patch(
     state: State<'_, AppState>,
     topic_id: u64,
-    base_version: usize,
+    base_at: i64,
 ) -> CommandResult<PatchInfo> {
-    Ok(state.core.compute_patch(topic_id, base_version).await?)
+    Ok(state.core.compute_patch(topic_id, base_at)?)
 }
 
 /// Определяет скачанную версию по выбранной локальной папке.
@@ -258,12 +259,12 @@ pub async fn detect_version(
 pub async fn download_patch(
     state: State<'_, AppState>,
     topic_id: u64,
-    base_version: usize,
+    base_at: i64,
     options: AddOptions,
 ) -> CommandResult<String> {
     Ok(state
         .core
-        .download_patch(topic_id, base_version, options)
+        .download_patch(topic_id, base_at, options)
         .await?)
 }
 

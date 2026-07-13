@@ -13,12 +13,13 @@ import {
   PackageOpen,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { clsx } from "clsx";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { toast } from "@/components/Toaster";
 import { Badge, Button, EmptyState, Select, Spinner } from "@/components/ui";
+import { useFavorites } from "@/hooks/useLibrary";
 import { api, ApiError } from "@/lib/api";
 import { formatSize } from "@/lib/format";
 import type { PatchInfo, VersionMatch } from "@/lib/types";
@@ -49,6 +50,10 @@ export function TrackedHistoryPage({ topicId, title }: { topicId: number; title:
     queryKey: ["tracked-versions", topicId],
     queryFn: () => api.trackedVersions(topicId),
   });
+  // Название в маршруте — снимок на момент перехода; раздача могла
+  // переименоваться, поэтому показываем актуальное из отслеживаемого.
+  const { data: favorites } = useFavorites();
+  const currentTitle = favorites?.find((f) => f.topicId === topicId)?.title ?? title;
 
   const canPatch = (versions ?? []).length >= 2;
 
@@ -65,7 +70,7 @@ export function TrackedHistoryPage({ topicId, title }: { topicId: number; title:
           className="min-w-0 truncate text-left text-base font-semibold text-text hover:text-accent"
           title="Открыть раздачу"
         >
-          {title}
+          {currentTitle}
         </button>
         <div className="ml-auto">
           <Button
@@ -156,7 +161,10 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
     queryFn: () => api.trackedVersions(topicId),
   });
 
-  const [baseVersion, setBaseVersion] = useState<string>("");
+  // Версия адресуется временем фиксации (стабильно к вытеснению старых).
+  const [baseAt, setBaseAt] = useState<string>("");
+  // Отбрасываем устаревшие ответы computePatch при быстрой смене версии.
+  const requestSeq = useRef(0);
   const [detecting, setDetecting] = useState(false);
   const [matches, setMatches] = useState<VersionMatch[] | null>(null);
   const [patch, setPatch] = useState<PatchInfo | null>(null);
@@ -167,22 +175,26 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
   const versionOptions = [
     { value: "", label: "Выберите версию…" },
     ...(versions ?? []).map((v) => ({
-      value: String(v.index),
+      value: String(v.at),
       label: `v${v.index + 1} · ${formatDateTime(v.at)} · файлов: ${v.fileCount}`,
     })),
   ];
 
   const selectBase = async (value: string) => {
-    setBaseVersion(value);
+    const seq = ++requestSeq.current;
+    setBaseAt(value);
     setPatch(null);
     if (value === "") return;
     setComputing(true);
     try {
-      setPatch(await api.computePatch(topicId, Number(value)));
+      const result = await api.computePatch(topicId, Number(value));
+      if (seq !== requestSeq.current) return; // выбор уже сменился
+      setPatch(result);
     } catch (error) {
+      if (seq !== requestSeq.current) return;
       toast.error(error instanceof ApiError ? error.message : String(error));
     } finally {
-      setComputing(false);
+      if (seq === requestSeq.current) setComputing(false);
     }
   };
 
@@ -200,7 +212,7 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
         toast.success(
           `Похоже на v${best.version + 1}: совпало ${best.matched} из ${best.total} файлов`,
         );
-        await selectBase(String(best.version));
+        await selectBase(String(best.at));
       } else {
         toast.info("Совпадений с сохранёнными версиями не найдено");
       }
@@ -217,10 +229,10 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
   };
 
   const download = async () => {
-    if (baseVersion === "" || downloading) return;
+    if (baseAt === "" || downloading) return;
     setDownloading(true);
     try {
-      await api.downloadPatch(topicId, Number(baseVersion), {
+      await api.downloadPatch(topicId, Number(baseAt), {
         savePath,
         preferMagnet: false,
       });
@@ -240,7 +252,9 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
       <div className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-xl border border-border bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="text-base font-semibold text-text">Скачать патч</h2>
-          <Button variant="ghost" onClick={onClose} className="px-2">
+          {/* Во время добавления патча в движок закрытие не отменяет операцию —
+              блокируем, чтобы не создавать ложное ощущение отмены. */}
+          <Button variant="ghost" onClick={onClose} disabled={downloading} className="px-2">
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -253,7 +267,7 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
             <div className="flex gap-2">
               <Select
                 className="flex-1"
-                value={baseVersion}
+                value={baseAt}
                 onChange={(v) => void selectBase(v)}
                 options={versionOptions}
               />
@@ -277,10 +291,10 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
               {matches.slice(0, 4).map((m) => (
                 <button
                   key={m.version}
-                  onClick={() => void selectBase(String(m.version))}
+                  onClick={() => void selectBase(String(m.at))}
                   className={clsx(
                     "flex items-center justify-between text-xs hover:text-accent",
-                    String(m.version) === baseVersion ? "text-accent" : "text-muted",
+                    String(m.at) === baseAt ? "text-accent" : "text-muted",
                   )}
                 >
                   <span>
@@ -303,8 +317,10 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
           {patch && !computing && (
             <div className="flex min-h-0 flex-col gap-2">
               <div className="text-sm text-text">
-                {downloadable.length === 0 ? (
+                {patch.files.length === 0 ? (
                   "Изменённых файлов нет — вы на актуальной версии."
+                ) : downloadable.length === 0 ? (
+                  `Скачивать нечего: изменения — только удаление файлов (${removed.length}) из раздачи.`
                 ) : (
                   <>
                     Будет скачано <b>{downloadable.length}</b> файлов (
@@ -315,7 +331,7 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
                   </>
                 )}
               </div>
-              {downloadable.length > 0 && (
+              {patch.files.length > 0 && (
                 <div className="max-h-48 overflow-y-auto rounded-lg border border-border bg-surface-2/50">
                   {patch.files.map((f) => (
                     <div
@@ -357,13 +373,13 @@ function PatchModal({ topicId, onClose }: { topicId: number; onClose: () => void
             </span>
           )}
           <div className="ml-auto flex gap-2">
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="ghost" onClick={onClose} disabled={downloading}>
               Отмена
             </Button>
             <Button
               variant="primary"
               loading={downloading}
-              disabled={baseVersion === "" || !patch || downloadable.length === 0}
+              disabled={baseAt === "" || !patch || downloadable.length === 0}
               onClick={() => void download()}
             >
               <HardDriveDownload className="h-4 w-4" />

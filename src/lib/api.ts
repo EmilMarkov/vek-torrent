@@ -111,12 +111,12 @@ export const api = {
   checkFavorites: () => call<FavoriteItem[]>("check_favorites"),
   favoriteHistory: (topicId: number) => call<ChangeEventItem[]>("favorite_history", { topicId }),
   trackedVersions: (topicId: number) => call<FileVersionInfo[]>("tracked_versions", { topicId }),
-  computePatch: (topicId: number, baseVersion: number) =>
-    call<PatchInfo>("compute_patch", { topicId, baseVersion }),
+  computePatch: (topicId: number, baseAt: number) =>
+    call<PatchInfo>("compute_patch", { topicId, baseAt }),
   detectVersion: (topicId: number, dir: string) =>
     call<VersionMatch[]>("detect_version", { topicId, dir }),
-  downloadPatch: (topicId: number, baseVersion: number, options: AddOptions) =>
-    call<string>("download_patch", { topicId, baseVersion, options }),
+  downloadPatch: (topicId: number, baseAt: number, options: AddOptions) =>
+    call<string>("download_patch", { topicId, baseAt, options }),
   history: () => call<HistoryItem[]>("history"),
   removeHistory: (topicId: number) => call<void>("remove_history", { topicId }),
   clearHistory: () => call<void>("clear_history"),

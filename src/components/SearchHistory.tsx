@@ -13,7 +13,11 @@ interface Props {
 }
 
 export function SearchHistoryDropdown({ query, onPick, onClose }: Props) {
-  const [history, setHistory] = useState(loadSearchHistory);
+  // История перечитывается на каждый рендер (изменение ввода/удаление
+  // записи): чтение localStorage дёшево, а запросы текущей сессии
+  // дописываются в него, пока список открыт.
+  const [, setRevision] = useState(0);
+  const history = loadSearchHistory();
 
   const q = query.trim().toLowerCase();
   const visible = history.filter((h) => h.toLowerCase().includes(q) && h !== query.trim());
@@ -39,7 +43,8 @@ export function SearchHistoryDropdown({ query, onPick, onClose }: Props) {
           <button
             onMouseDown={(e) => {
               e.preventDefault();
-              setHistory(removeSearchHistory(item));
+              removeSearchHistory(item);
+              setRevision((r) => r + 1);
             }}
             title="Убрать из истории"
             className="px-2 py-1.5 text-faint opacity-0 group-hover:opacity-100 hover:text-danger"
@@ -52,7 +57,8 @@ export function SearchHistoryDropdown({ query, onPick, onClose }: Props) {
         <button
           onMouseDown={(e) => {
             e.preventDefault();
-            setHistory(clearSearchHistory());
+            clearSearchHistory();
+            setRevision((r) => r + 1);
           }}
           className="text-[11px] text-faint hover:text-danger"
         >

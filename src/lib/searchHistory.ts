@@ -20,11 +20,18 @@ function save(history: string[]) {
   }
 }
 
-/** Добавляет запрос в начало истории (дедуп, максимум MAX записей). */
+/**
+ * Добавляет запрос в начало истории (дедуп, максимум MAX записей).
+ *
+ * Записи, являющиеся префиксом нового запроса, удаляются: lazy-search пишет
+ * историю на каждый дебаунс, и без этого история засорялась бы
+ * промежуточными «resident», «resident ev», …
+ */
 export function pushSearchHistory(query: string) {
   const q = query.trim();
   if (!q) return;
-  const history = loadSearchHistory().filter((h) => h !== q);
+  const lower = q.toLowerCase();
+  const history = loadSearchHistory().filter((h) => h !== q && !lower.startsWith(h.toLowerCase()));
   history.unshift(q);
   save(history.slice(0, MAX));
 }

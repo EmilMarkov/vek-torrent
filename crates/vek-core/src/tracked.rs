@@ -63,7 +63,11 @@ impl TrackedVersions {
             fs::create_dir_all(dir)?;
         }
         let json = serde_json::to_string(self)?;
-        let tmp = path.with_extension("json.tmp");
+        // Уникальное имя tmp-файла: параллельные писатели не должны
+        // публиковать друг за друга частично записанный контент.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.tmp{seq}"));
         fs::write(&tmp, json)?;
         fs::rename(&tmp, path)?;
         Ok(())
@@ -206,29 +210,36 @@ pub fn scan_dir(dir: &Path) -> Result<Vec<TrackedFile>> {
     Ok(files)
 }
 
-/// Насколько локальные файлы совпадают с версией: количество совпавших
-/// (по хвосту пути и размеру) файлов.
+/// Насколько локальные файлы совпадают с версией: сколько файлов ВЕРСИИ
+/// нашлось среди локальных (по хвосту пути и размеру). Каждый локальный файл
+/// засчитывается не более одного раза — дубли имени+размера не завышают счёт.
 pub fn match_score(local: &[TrackedFile], version: &[TrackedFile]) -> usize {
-    // Индекс версии по размеру: сравнение путей только среди кандидатов
-    // того же размера (раздачи содержат тысячи файлов).
-    let mut by_size: std::collections::HashMap<u64, Vec<&str>> = std::collections::HashMap::new();
-    for file in version {
-        by_size.entry(file.size).or_default().push(&file.path);
+    // Индекс локальных файлов по размеру: сравнение путей только среди
+    // кандидатов того же размера (раздачи содержат тысячи файлов).
+    let mut by_size: std::collections::HashMap<u64, Vec<(&str, bool)>> =
+        std::collections::HashMap::new();
+    for file in local {
+        by_size
+            .entry(file.size)
+            .or_default()
+            .push((&file.path, false));
     }
 
     let mut matched = 0;
-    for local_file in local {
-        let Some(candidates) = by_size.get(&local_file.size) else {
+    for version_file in version {
+        let Some(candidates) = by_size.get_mut(&version_file.size) else {
             continue;
         };
         // Файл раздачи может лежать глубже выбранной папки (или наоборот):
         // засчитываем совпадение, если один путь — суффикс другого.
-        let found = candidates.iter().any(|v| {
-            local_file.path == **v
-                || local_file.path.ends_with(&format!("/{v}"))
-                || v.ends_with(&format!("/{}", local_file.path))
+        let found = candidates.iter_mut().find(|(path, used)| {
+            !used
+                && (*path == version_file.path
+                    || path.ends_with(&format!("/{}", version_file.path))
+                    || version_file.path.ends_with(&format!("/{path}")))
         });
-        if found {
+        if let Some((_, used)) = found {
+            *used = true;
             matched += 1;
         }
     }

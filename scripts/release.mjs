@@ -85,15 +85,18 @@ writeFileSync(confPath, JSON.stringify(conf, null, 2) + "\n");
 // ── Lock-файлы ──────────────────────────────────────────────────────────────
 
 run("npm install");
-run("cargo generate-lockfile");
+// Только версии workspace-крейтов: generate-lockfile перелочил бы ВСЕ
+// зависимости на последние версии прямо в релизном коммите.
+run("cargo update --workspace");
 
 // ── Коммит, тег, пуш ────────────────────────────────────────────────────────
 
 run("git add package.json package-lock.json Cargo.toml Cargo.lock src-tauri/tauri.conf.json");
 run(`git commit -m "build: v${version}"`);
 run(`git tag -a ${tag} -m "${tag}"`);
-run("git push origin main");
-run(`git push origin ${tag}`);
+// Атомарно: либо уходят и main, и тег, либо ничего (сбой между двумя
+// отдельными push оставлял бы репозиторий в половинчатом состоянии).
+run(`git push --atomic origin main ${tag}`);
 
 console.log(`\n✓ ${tag} отправлен — workflow Release собирает и публикует артефакты:`);
 console.log("  https://github.com/EmilMarkov/vek-torrent/actions");

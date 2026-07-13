@@ -45,6 +45,9 @@ pub struct AppCore {
     api_running: AtomicBool,
     /// Сериализует автоматическое переключение зеркала между запросами.
     failover_lock: tokio::sync::Mutex<()>,
+    /// Сериализует проверки обновлений отслеживаемого: параллельные проходы
+    /// (фон + ручная кнопка + внешний API) дублировали бы события истории.
+    favorites_check_lock: tokio::sync::Mutex<()>,
 }
 
 impl AppCore {
@@ -71,6 +74,7 @@ impl AppCore {
             library: RwLock::new(library),
             api_running: AtomicBool::new(false),
             failover_lock: tokio::sync::Mutex::new(()),
+            favorites_check_lock: tokio::sync::Mutex::new(()),
         }))
     }
 
@@ -609,14 +613,15 @@ impl AppCore {
             .with_auth_retry(|client| async move { client.topic(topic_id).await })
             .await?;
         let now = now_unix();
+        let snapshot = topic_snapshot(&topic, config.favorites.track_description);
         let record = FavoriteRecord {
             topic_id,
             title: topic.title.clone(),
             added_at: now,
             last_checked: now,
-            signature: topic_signature(&topic),
+            signature: snapshot_signature(&snapshot),
             has_update: false,
-            snapshot: topic_snapshot(&topic, config.favorites.track_description),
+            snapshot,
             changes: Vec::new(),
             history: Vec::new(),
         };
@@ -642,6 +647,13 @@ impl AppCore {
         let file = self
             .with_auth_retry(|client| async move { client.download_torrent(topic_id).await })
             .await?;
+
+        // Пока качали .torrent, раздачу могли снять с отслеживания —
+        // не воскрешаем только что удалённую историю версий.
+        if !self.is_favorite(topic_id) {
+            return Ok(None);
+        }
+
         let files: Vec<TrackedFile> = engine::torrent_files(&file.bytes)?
             .into_iter()
             .map(|f| TrackedFile {
@@ -697,6 +709,10 @@ impl AppCore {
     ///
     /// Ошибки отдельных раздач не прерывают проверку (best-effort).
     pub async fn check_favorites(&self) -> Result<Vec<FavoriteItem>> {
+        // Параллельные проходы (фон + кнопка + API) читали бы одинаковое
+        // «старое» состояние и дублировали события истории.
+        let _guard = self.favorites_check_lock.lock().await;
+
         let ids: Vec<u64> = self
             .library
             .read()
@@ -714,7 +730,6 @@ impl AppCore {
             else {
                 continue;
             };
-            let signature = topic_signature(&topic);
             let mut snapshot = topic_snapshot(&topic, config.favorites.track_description);
 
             // Готовим сравнение по копии записи; сетевые операции (скачивание
@@ -731,7 +746,7 @@ impl AppCore {
                 continue;
             };
 
-            // Временная пропажа данных со страницы (гость/сбой) — не
+            // Временная пропажа данных со страницы (гость/сбой/заглушка) — не
             // обновление: сохраняем последние известные значения.
             if snapshot.info_hash.is_none() {
                 snapshot.info_hash = old.snapshot.info_hash.clone();
@@ -739,16 +754,31 @@ impl AppCore {
             if snapshot.description_hash.is_none() {
                 snapshot.description_hash = old.snapshot.description_hash.clone();
             }
+            if snapshot.size_bytes.is_none() {
+                snapshot.size_bytes = old.snapshot.size_bytes;
+            }
+            if snapshot.registered.is_none() {
+                snapshot.registered = old.snapshot.registered.clone();
+            }
+            // Сигнатура — по снимку с унаследованными значениями, чтобы
+            // пропавшие поля не выглядели изменением.
+            let signature = snapshot_signature(&snapshot);
 
             // Записи со старых версий не имеют снимка — заполняем его без
-            // пометки обновления, дальше сравниваем только сигнатуру.
+            // пометки обновления, дальше сравниваем содержательный дифф.
             let had_snapshot = old.snapshot != FavoriteSnapshot::default();
             let mut changes = if had_snapshot {
                 describe_changes(&old.snapshot, &snapshot)
             } else {
                 Vec::new()
             };
-            let updated = old.signature != signature || !changes.is_empty();
+            // При наличии снимка «обновлением» считается только содержательный
+            // дифф — сигнатура покрывает лишь миграцию старых записей.
+            let updated = if had_snapshot {
+                !changes.is_empty()
+            } else {
+                old.signature != signature
+            };
 
             // Файлы сверяются только при обнаруженном обновлении: скачивание
             // .torrent на каждую проверку тратило бы дневной лимит rutracker.
@@ -786,20 +816,10 @@ impl AppCore {
     }
 
     // ── Патчи отслеживаемых раздач ──────────────────────────────────────
-
-    /// Актуальный список файлов раздачи (скачивает свежий `.torrent`).
-    async fn current_torrent_files(&self, topic_id: u64) -> Result<Vec<TrackedFile>> {
-        let file = self
-            .with_auth_retry(|client| async move { client.download_torrent(topic_id).await })
-            .await?;
-        Ok(engine::torrent_files(&file.bytes)?
-            .into_iter()
-            .map(|f| TrackedFile {
-                path: f.path,
-                size: f.size,
-            })
-            .collect())
-    }
+    //
+    // Версии адресуются стабильным ключом `at` (unix-время фиксации), а не
+    // позицией в списке: вытеснение старых версий по капу сдвигает индексы,
+    // и позиционная адресация могла бы молча подменить базу патча.
 
     /// Сохранённые версии списков файлов раздачи (старые → новые).
     pub fn tracked_versions(&self, topic_id: u64) -> Vec<FileVersionInfo> {
@@ -816,18 +836,22 @@ impl AppCore {
             .collect()
     }
 
-    /// Патч: изменения файлов между версией пользователя и АКТУАЛЬНЫМ
-    /// `.torrent` раздачи (скачивается с трекера, чтобы индексы файлов
-    /// совпадали с тем, что реально будет скачиваться).
-    pub async fn compute_patch(&self, topic_id: u64, base_version: usize) -> Result<PatchInfo> {
+    /// Патч: изменения файлов между версией пользователя (`base_at`) и
+    /// последней сохранённой версией. Без сетевых запросов: последняя версия
+    /// обновляется при каждой проверке обновлений.
+    pub fn compute_patch(&self, topic_id: u64, base_at: i64) -> Result<PatchInfo> {
         let versions = TrackedVersions::load(&self.app_dir, topic_id);
         let base = versions
             .versions
-            .get(base_version)
-            .ok_or_else(|| Error::Config("версия не найдена".into()))?;
+            .iter()
+            .find(|v| v.at == base_at)
+            .ok_or_else(|| Error::Config("версия не найдена (список обновился?)".into()))?;
+        let latest = versions
+            .versions
+            .last()
+            .ok_or_else(|| Error::Config("нет сохранённых версий".into()))?;
 
-        let current = self.current_torrent_files(topic_id).await?;
-        let changes = tracked::diff_files(&base.files, &current);
+        let changes = tracked::diff_files(&base.files, &latest.files);
         let download_size = changes
             .iter()
             .filter(|c| c.kind != tracked::FileChangeKind::Removed)
@@ -884,17 +908,20 @@ impl AppCore {
 
     /// Скачивает патч: добавляет актуальную раздачу в движок, выбрав только
     /// файлы, изменившиеся относительно базовой версии пользователя.
+    /// Единственное скачивание `.torrent` — индексы `only_files` обязаны
+    /// соответствовать именно тому торренту, который уходит в движок.
     pub async fn download_patch(
         &self,
         topic_id: u64,
-        base_version: usize,
+        base_at: i64,
         options: AddOptions,
     ) -> Result<String> {
         let versions = TrackedVersions::load(&self.app_dir, topic_id);
         let base = versions
             .versions
-            .get(base_version)
-            .ok_or_else(|| Error::Config("версия не найдена".into()))?;
+            .iter()
+            .find(|v| v.at == base_at)
+            .ok_or_else(|| Error::Config("версия не найдена (список обновился?)".into()))?;
 
         let file = self
             .with_auth_retry(|client| async move { client.download_torrent(topic_id).await })
@@ -932,14 +959,23 @@ impl AppCore {
         let mut params = self.add_params(&config, &options);
         params.only_files = Some(only_files);
 
-        let topic = self
-            .with_auth_retry(|client| async move { client.topic(topic_id).await })
-            .await?;
+        // Название берём из записи отслеживаемого — лишний запрос страницы
+        // раздачи не нужен.
+        let title = self
+            .library
+            .read()
+            .expect("library lock")
+            .favorites
+            .iter()
+            .find(|f| f.topic_id == topic_id)
+            .map(|f| f.title.clone())
+            .unwrap_or_else(|| format!("Раздача {topic_id}"));
+
         let hash = engine_handle
             .add(Source::TorrentBytes(file.bytes), params)
             .await
             .map_err(Error::from)?;
-        self.record_history(topic_id, &topic.title, &hash);
+        self.record_history(topic_id, &title, &hash);
         Ok(hash)
     }
 
@@ -1214,12 +1250,13 @@ fn category_for_topic(topic: &TopicPage) -> Option<&'static str> {
 }
 
 /// Сигнатура состояния раздачи для детекта обновлений: дата регистрации +
-/// размер. При переоформлении раздачи на трекере они меняются.
-fn topic_signature(topic: &TopicPage) -> String {
+/// размер (по снимку с уже унаследованными значениями). Используется для
+/// миграции записей со старых версий приложения, у которых нет снимка.
+fn snapshot_signature(snapshot: &FavoriteSnapshot) -> String {
     format!(
         "{}|{}",
-        topic.stats.registered.clone().unwrap_or_default(),
-        topic.stats.size_bytes.unwrap_or(0)
+        snapshot.registered.clone().unwrap_or_default(),
+        snapshot.size_bytes.unwrap_or(0)
     )
 }
 

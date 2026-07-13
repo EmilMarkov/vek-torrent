@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyFilters,
   DEFAULT_FILTERS,
+  effectiveCategoryForumIds,
   forumIdsForCategory,
   GENERAL_CATEGORIES,
   parseRefine,
@@ -148,6 +149,27 @@ describe("forumIdsForCategory", () => {
   it("аудиокниги относятся к книгам, а не к музыке", () => {
     expect(forumIdsForCategory(groups, cat("music"))).not.toContain(4);
     expect(forumIdsForCategory(groups, cat("books"))).toContain(4);
+  });
+});
+
+describe("effectiveCategoryForumIds", () => {
+  const groups: ForumGroup[] = [
+    { title: "Игры", forums: [{ id: 2, name: "Игры для PC", depth: 0 }] },
+  ];
+
+  it("явно заданные разделы имеют приоритет", () => {
+    const category = { name: "Игры", forumIds: [7, 8] };
+    expect(effectiveCategoryForumIds(groups, category)).toEqual([7, 8]);
+  });
+
+  it("стандартная категория без настройки использует эвристику по имени", () => {
+    const category = { name: "игры", forumIds: [] };
+    expect(effectiveCategoryForumIds(groups, category)).toEqual([2]);
+  });
+
+  it("своя категория без разделов даёт пустой набор", () => {
+    const category = { name: "Аниме", forumIds: [] };
+    expect(effectiveCategoryForumIds(groups, category)).toEqual([]);
   });
 });
 

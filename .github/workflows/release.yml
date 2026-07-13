@@ -54,6 +54,10 @@ jobs:
     needs: create-release
     strategy:
       fail-fast: false
+      # Последовательно: параллельные джобы гонялись бы за latest.json
+      # (каждый читает-дополняет-перезаписывает манифест автообновления),
+      # и платформа могла бы молча потеряться.
+      max-parallel: 1
       matrix:
         include:
           - platform: macos-latest

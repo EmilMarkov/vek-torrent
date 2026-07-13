@@ -139,6 +139,7 @@ export function FiltersSidebar({ filters, onChange }: Props) {
         <CategoryChips
           categories={userCategories ?? []}
           groups={forumGroups.data ?? []}
+          groupsLoading={forumGroups.isLoading || !forumGroups.data}
           forumIds={filters.forumIds}
           onChange={(forumIds) => update({ forumIds })}
         />
@@ -159,11 +160,13 @@ export function FiltersSidebar({ filters, onChange }: Props) {
 function CategoryChips({
   categories,
   groups,
+  groupsLoading,
   forumIds,
   onChange,
 }: {
   categories: CategoryItem[];
   groups: ForumGroup[];
+  groupsLoading: boolean;
   forumIds: number[];
   onChange: (ids: number[]) => void;
 }) {
@@ -171,15 +174,28 @@ function CategoryChips({
   const selected = new Set(forumIds);
 
   const idsOf = (category: CategoryItem) => effectiveCategoryForumIds(groups, category);
+  const isActive = (category: CategoryItem) => {
+    const ids = idsOf(category);
+    return ids.length > 0 && ids.every((id) => selected.has(id));
+  };
 
   const toggle = (category: CategoryItem) => {
     const ids = idsOf(category);
     if (ids.length === 0) return;
-    const active = ids.every((id) => selected.has(id));
     const next = new Set(selected);
-    for (const id of ids) {
-      if (active) next.delete(id);
-      else next.add(id);
+    if (isActive(category)) {
+      // Категории могут пересекаться по разделам: при снятии не трогаем
+      // разделы, принадлежащие другим активным категориям.
+      const keep = new Set(
+        categories.filter((c) => c.id !== category.id && isActive(c)).flatMap((c) => idsOf(c)),
+      );
+      for (const id of ids) {
+        if (!keep.has(id)) next.delete(id);
+      }
+    } else {
+      for (const id of ids) {
+        next.add(id);
+      }
     }
     onChange([...next]);
   };
@@ -197,9 +213,11 @@ function CategoryChips({
               onClick={() => toggle(category)}
               disabled={ids.length === 0}
               title={
-                ids.length === 0
-                  ? "У категории не настроены разделы (страница «Категории»)"
-                  : `Разделов: ${ids.length}`
+                ids.length > 0
+                  ? `Разделов: ${ids.length}`
+                  : groupsLoading
+                    ? "Разделы rutracker ещё не загружены (нужен вход)"
+                    : "У категории не настроены разделы (страница «Категории»)"
               }
               className={
                 active
