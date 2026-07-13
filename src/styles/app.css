@@ -151,8 +151,11 @@ body {
   display: none;
 }
 
-/* Изображения (после подстановки var.postImg → img в PostBody). */
+/* inline-block отменяет сброс Tailwind Preflight (img → block): на rutracker
+   картинки строчные, иначе флаги/смайлы в тексте переносятся на новую строку. */
 .post-body img {
+  display: inline-block;
+  vertical-align: middle;
   max-width: 100%;
   height: auto;
   cursor: zoom-in;

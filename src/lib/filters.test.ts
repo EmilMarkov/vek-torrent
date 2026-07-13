@@ -28,28 +28,36 @@ function result(over: Partial<SearchResult>): SearchResult {
 }
 
 describe("parseRefine", () => {
+  const word = (value: string) => ({ value, phrase: false });
+  const quote = (value: string) => ({ value, phrase: true });
+
   it("делит на включающие и исключающие термины", () => {
     const parsed = parseRefine("linux mint -beta -rc");
-    expect(parsed.include).toEqual(["linux", "mint"]);
-    expect(parsed.exclude).toEqual(["beta", "rc"]);
+    expect(parsed.include).toEqual([word("linux"), word("mint")]);
+    expect(parsed.exclude).toEqual([word("beta"), word("rc")]);
   });
 
   it("игнорирует лишние пробелы и одинокий минус", () => {
     const parsed = parseRefine("  ubuntu   -  ");
-    expect(parsed.include).toEqual(["ubuntu"]);
+    expect(parsed.include).toEqual([word("ubuntu")]);
     expect(parsed.exclude).toEqual([]);
   });
 
   it("поддерживает словосочетания в кавычках, включая исключающие", () => {
     const parsed = parseRefine('linux "linux mint" -beta -"release candidate"');
-    expect(parsed.include).toEqual(["linux", "linux mint"]);
-    expect(parsed.exclude).toEqual(["beta", "release candidate"]);
+    expect(parsed.include).toEqual([word("linux"), quote("linux mint")]);
+    expect(parsed.exclude).toEqual([word("beta"), quote("release candidate")]);
   });
 
   it('исключает словосочетание -"Fallout Shelter"', () => {
     const parsed = parseRefine('fallout -"fallout shelter"');
-    expect(parsed.include).toEqual(["fallout"]);
-    expect(parsed.exclude).toEqual(["fallout shelter"]);
+    expect(parsed.include).toEqual([word("fallout")]);
+    expect(parsed.exclude).toEqual([quote("fallout shelter")]);
+  });
+
+  it("срезает окаймляющую пунктуацию у слов, но не у фраз", () => {
+    expect(parseRefine("сезон: 3").include).toEqual([word("сезон"), word("3")]);
+    expect(parseRefine('"сезон: 3"').include).toEqual([quote("сезон: 3")]);
   });
 });
 
@@ -112,6 +120,33 @@ describe("applyFilters", () => {
   it("исключает словосочетание из выдачи", () => {
     const out = applyFilters(items, { ...DEFAULT_FILTERS, refine: '-"ubuntu 24.04"' });
     expect(out.map((r) => r.topic_id)).toEqual([1, 3]);
+  });
+
+  it("слово сопоставляется по границам токена: «3» не ловит «15K3»", () => {
+    const seasons = [
+      result({ topic_id: 10, title: "Дом дракона / Сезон: 3 / Серии: 1-3 из 8 [2026, WEB-DL]" }),
+      result({
+        topic_id: 11,
+        title: "Дом дракона / Сезон: 2 / Серии: 1-8 из 8 [2024] 2 x MVO (Syncmer, 15K3)",
+      }),
+    ];
+    const out = applyFilters(seasons, { ...DEFAULT_FILTERS, refine: "сезон: 3" });
+    expect(out.map((r) => r.topic_id)).toEqual([10]);
+  });
+
+  it("уточнение «сезон 3» находит запись с «Сезон: 3» несмотря на двоеточие", () => {
+    const seasons = [result({ topic_id: 12, title: "Сериал / Сезон: 3 / серии 1-10" })];
+    const out = applyFilters(seasons, { ...DEFAULT_FILTERS, refine: "сезон 3" });
+    expect(out.map((r) => r.topic_id)).toEqual([12]);
+  });
+
+  it("префиксное слово находит разрешение: «1080» ловит «1080p»", () => {
+    const res = [
+      result({ topic_id: 20, title: "Фильм [WEB-DL 1080p]" }),
+      result({ topic_id: 21, title: "Фильм [WEB-DL 720p]" }),
+    ];
+    const out = applyFilters(res, { ...DEFAULT_FILTERS, refine: "1080" });
+    expect(out.map((r) => r.topic_id)).toEqual([20]);
   });
 
   it("автор и разделы не фильтруются на клиенте (уходят на сервер)", () => {

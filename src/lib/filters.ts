@@ -5,9 +5,9 @@ import type { ForumGroup, SearchResult } from "./types";
 
 export interface ClientFilters {
   /**
-   * Строка «живого» уточнения. Поддерживает слова и словосочетания в кавычках,
-   * а также исключение через `-`: `1080p -ts -"Fallout Shelter"`.
-   * Применяется на клиенте в пределах текущей страницы.
+   * Строка «живого» уточнения. Слова сопоставляются с начала токена (префиксно),
+   * словосочетания в кавычках — буквально; исключение через `-`:
+   * `1080p -ts -"Fallout Shelter"`. Применяется на клиенте по всей выдаче.
    */
   refine: string;
   /** Фильтр по автору раздачи — уходит на СЕРВЕР rutracker (`pn=`). */
@@ -38,20 +38,33 @@ export const DEFAULT_FILTERS: ClientFilters = {
   categoryIds: [],
 };
 
+/** Термин уточнения. */
+export interface RefineTerm {
+  value: string;
+  /** Фраза в кавычках — подстрока; слово — префикс токена. */
+  phrase: boolean;
+}
+
 interface ParsedRefine {
-  include: string[];
-  exclude: string[];
+  include: RefineTerm[];
+  exclude: RefineTerm[];
+}
+
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+/** «сезон:» → «сезон», «(2026)» → «2026». */
+function trimWordEdges(term: string): string {
+  return term.replace(/^[^\p{L}\p{N}]+/u, "").replace(/[^\p{L}\p{N}]+$/u, "");
 }
 
 /**
- * Разбирает строку уточнения на обязательные и исключающие термины.
- *
- * Поддерживает словосочетания в двойных кавычках (в т.ч. с `-` для исключения):
- * `linux "linux mint" -beta -"release candidate"`.
+ * Разбирает строку уточнения на обязательные и исключающие термины. Слова —
+ * префикс токена (чтобы «Сезон: 3» не ловило «15K3», но «1080» находило
+ * «1080p»); фразы в кавычках — буквальная подстрока, `-` исключает.
  */
 export function parseRefine(refine: string): ParsedRefine {
-  const include: string[] = [];
-  const exclude: string[] = [];
+  const include: RefineTerm[] = [];
+  const exclude: RefineTerm[] = [];
   const text = refine.toLowerCase();
   let i = 0;
 
@@ -65,28 +78,47 @@ export function parseRefine(refine: string): ParsedRefine {
       i++;
     }
 
+    let phrase = false;
     let term = "";
     if (text[i] === '"') {
-      i++; // пропускаем открывающую кавычку
+      phrase = true;
+      i++;
       while (i < text.length && text[i] !== '"') term += text[i++];
-      if (i < text.length) i++; // пропускаем закрывающую кавычку
+      if (i < text.length) i++;
     } else {
       while (i < text.length && !/\s/.test(text[i])) term += text[i++];
+      term = trimWordEdges(term);
     }
 
     term = term.trim();
-    if (!term) continue; // одинокий «-» или пустые кавычки
-    (negative ? exclude : include).push(term);
+    if (!term) continue;
+    (negative ? exclude : include).push({ value: term, phrase });
   }
 
   return { include, exclude };
 }
 
+/** Совпадение слова на левой границе токена: «1080»∈«1080p», «3»∉«15k3». */
+function matchesWord(haystack: string, word: string): boolean {
+  let from = 0;
+  for (;;) {
+    const idx = haystack.indexOf(word, from);
+    if (idx === -1) return false;
+    const before = haystack[idx - 1];
+    if (before === undefined || !WORD_CHAR.test(before)) return true;
+    from = idx + 1;
+  }
+}
+
+function termMatches(haystack: string, term: RefineTerm): boolean {
+  return term.phrase ? haystack.includes(term.value) : matchesWord(haystack, term.value);
+}
+
 function matchesRefine(title: string, parsed: ParsedRefine): boolean {
   const lower = title.toLowerCase();
   return (
-    parsed.include.every((term) => lower.includes(term)) &&
-    !parsed.exclude.some((term) => lower.includes(term))
+    parsed.include.every((term) => termMatches(lower, term)) &&
+    !parsed.exclude.some((term) => termMatches(lower, term))
   );
 }
 

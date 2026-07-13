@@ -82,6 +82,9 @@ const conf = JSON.parse(readFileSync(confPath, "utf8"));
 conf.version = version;
 writeFileSync(confPath, JSON.stringify(conf, null, 2) + "\n");
 
+// Приводим переписанные манифесты к стилю Prettier (иначе CI падает на format:check).
+run("npx prettier --write package.json src-tauri/tauri.conf.json");
+
 // ── Lock-файлы ──────────────────────────────────────────────────────────────
 
 run("npm install");
