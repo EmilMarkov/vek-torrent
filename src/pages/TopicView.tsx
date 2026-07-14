@@ -155,7 +155,6 @@ export function TopicView({ topicId }: { topicId: number }) {
                 label="Скачали"
                 value={data.stats.completed != null ? formatNumber(data.stats.completed) : "—"}
               />
-              {data.stats.registered && <Stat label="Добавлен" value={data.stats.registered} />}
               {data.author && <Stat label="Автор" value={data.author} />}
               {!data.has_torrent_file && !data.magnet && <Badge tone="warn">Файл недоступен</Badge>}
             </div>

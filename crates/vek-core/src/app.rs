@@ -1449,11 +1449,6 @@ fn describe_changes(old: &FavoriteSnapshot, new: &FavoriteSnapshot) -> Vec<Strin
             format_size(after)
         ));
     }
-    if old.registered != new.registered
-        && let (Some(before), Some(after)) = (&old.registered, &new.registered)
-    {
-        changes.push(format!("дата регистрации: {before} → {after}"));
-    }
     if old.title != new.title && !old.title.is_empty() {
         changes.push(format!(
             "название: «{}» → «{}»",
