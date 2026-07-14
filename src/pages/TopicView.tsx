@@ -95,7 +95,7 @@ export function TopicView({ topicId }: { topicId: number }) {
             hint={error instanceof Error ? error.message : undefined}
           />
         ) : (
-          <div className="mx-auto max-w-4xl px-6 py-5">
+          <div className="mx-auto max-w-6xl px-6 py-5">
             <h1 className="selectable text-xl leading-snug font-semibold text-text">
               {data.title}
             </h1>
