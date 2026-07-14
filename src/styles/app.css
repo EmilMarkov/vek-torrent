@@ -51,12 +51,6 @@ body {
   overscroll-behavior: none;
 }
 
-/* Текст внутри контента раздач должен выделяться. */
-.selectable,
-.selectable * {
-  user-select: text;
-}
-
 /* Тонкие тёмные скроллбары. */
 * {
   scrollbar-width: thin;

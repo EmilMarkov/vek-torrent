@@ -9,6 +9,10 @@ import { openLightbox } from "@/components/Lightbox";
 import { adaptColorForDark } from "@/lib/colors";
 import { useAppStore } from "@/store";
 
+// Приложение работает в защищённом контексте, и WKWebView режет http как mixed
+// content — поднимаем схему до https (хостинги картинок её держат).
+const upgradeHttp = (url: string) => url.replace(/^http:\/\//i, "https://");
+
 // Готовит HTML поста до вставки: <var class="postImg"> → <img> (на трекере это
 // делает их скрипт) и адаптирует авторские цвета к тёмной теме.
 function preparePostHtml(html: string): string {
@@ -25,6 +29,11 @@ function preparePostHtml(html: string): string {
     img.className = v.className;
     img.alt = "";
     v.replaceWith(img);
+  });
+
+  doc.querySelectorAll("img[src]").forEach((img) => {
+    const src = img.getAttribute("src") ?? "";
+    if (src) img.setAttribute("src", upgradeHttp(src));
   });
 
   // Незакрытые шрифтовые/жирные спаны rutracker часто оборачивают целые блоки
@@ -72,8 +81,10 @@ export function PostBody({ html }: { html: string }) {
 
     if (img && root.contains(img) && !img.classList.contains("smile")) {
       e.preventDefault();
+      // Полноразмерная картинка берётся из ссылки-обёртки — её схему тоже
+      // поднимаем, иначе лайтбокс упрётся в mixed content.
       const full = link?.href && /\.(avif|gif|jpe?g|png|webp)(\?|$)/i.test(link.href);
-      openLightbox(full ? link.href : img.currentSrc || img.src);
+      openLightbox(upgradeHttp(full ? link.href : img.currentSrc || img.src));
       return;
     }
 
@@ -89,7 +100,7 @@ export function PostBody({ html }: { html: string }) {
   return (
     <div
       ref={ref}
-      className="post-body selectable"
+      className="post-body"
       onClick={onClick}
       dangerouslySetInnerHTML={{ __html: prepared }}
     />

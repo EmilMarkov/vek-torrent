@@ -165,9 +165,43 @@ pub struct Library {
 impl Library {
     /// Загружает библиотеку из файла (при отсутствии/повреждении — пустая).
     pub fn load(path: &Path) -> Self {
-        match fs::read_to_string(path) {
+        let mut library: Self = match fs::read_to_string(path) {
             Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
             Err(_) => Self::default(),
+        };
+        library.drop_registered_changes();
+        library
+    }
+
+    /// Чистит записи об изменении даты регистрации: у свежих раздач она
+    /// приходит относительным временем («N часов»), парсилась как меняющееся
+    /// число и порождала ложные обновления. Событие больше не создаётся —
+    /// убираем и уже накопленные.
+    fn drop_registered_changes(&mut self) {
+        let is_registered = |c: &String| c.starts_with("дата регистрации");
+        for favorite in &mut self.favorites {
+            let had_changes = !favorite.changes.is_empty();
+            favorite.changes.retain(|c| !is_registered(c));
+
+            favorite.history.retain_mut(|event| {
+                let had = !event.changes.is_empty();
+                event.changes.retain(|c| !is_registered(c));
+                // Уходит только событие, опустевшее из-за чистки. Изначально
+                // пустые («обновление без деталей» у записей без снимка) —
+                // легитимны и остаются.
+                !had || !event.changes.is_empty()
+            });
+
+            // Дата регистрации затирала описание при каждой проверке, поэтому
+            // опустевший `changes` при стоящей отметке ещё не значит, что
+            // обновления не было: восстанавливаем описание из свежайшего
+            // уцелевшего события. Отметку снимаем, только если весь след был шумом.
+            if had_changes && favorite.changes.is_empty() && favorite.has_update {
+                match favorite.history.first() {
+                    Some(event) => favorite.changes = event.changes.clone(),
+                    None => favorite.has_update = false,
+                }
+            }
         }
     }
 
@@ -388,6 +422,78 @@ mod tests {
             changes: Vec::new(),
             history: Vec::new(),
         }
+    }
+
+    #[test]
+    fn drops_registered_changes_from_history() {
+        let mut lib = Library::default();
+
+        // (1) описание затёрто датой регистрации, но в истории есть настоящее
+        // изменение: отметку сохраняем и восстанавливаем описание из него
+        let mut f = fav(1);
+        f.has_update = true;
+        f.changes = vec!["дата регистрации: 4 → 5".into()];
+        f.history = vec![
+            // событие только про дату регистрации — уходит целиком
+            ChangeEventRecord {
+                at: 30,
+                changes: vec!["дата регистрации: 4 → 5".into()],
+            },
+            // содержательное: дата регистрации вычищается, само событие остаётся
+            ChangeEventRecord {
+                at: 20,
+                changes: vec![
+                    "дата регистрации: 5 → 6".into(),
+                    "размер: 1 ГБ → 2 ГБ".into(),
+                ],
+            },
+            // «обновление без деталей» (запись без снимка) — легитимно, остаётся
+            ChangeEventRecord {
+                at: 10,
+                changes: Vec::new(),
+            },
+        ];
+        lib.favorites.push(f);
+
+        // (2) запись со старой версии: отметка есть, changes пуст изначально
+        let mut migrated = fav(2);
+        migrated.has_update = true;
+        lib.favorites.push(migrated);
+
+        // (3) шумовая раздача: весь след — только дата регистрации
+        let mut noise = fav(3);
+        noise.has_update = true;
+        noise.changes = vec!["дата регистрации: 4 → 5".into()];
+        noise.history = vec![ChangeEventRecord {
+            at: 40,
+            changes: vec!["дата регистрации: 4 → 5".into()],
+        }];
+        lib.favorites.push(noise);
+
+        lib.drop_registered_changes();
+
+        let f = &lib.favorites[0];
+        assert!(f.has_update, "настоящее обновление не теряем");
+        assert_eq!(
+            f.changes,
+            vec!["размер: 1 ГБ → 2 ГБ".to_owned()],
+            "описание восстановлено из свежайшего уцелевшего события"
+        );
+        assert_eq!(f.history.len(), 2, "чисто-регистрационное событие удалено");
+        assert_eq!(f.history[0].at, 20);
+        assert_eq!(f.history[0].changes, vec!["размер: 1 ГБ → 2 ГБ".to_owned()]);
+        assert_eq!(f.history[1].at, 10, "«обновление без деталей» сохранено");
+        assert!(f.history[1].changes.is_empty());
+
+        assert!(
+            lib.favorites[1].has_update,
+            "у записи без changes отметку обновления не снимаем"
+        );
+
+        let noise = &lib.favorites[2];
+        assert!(!noise.has_update, "шумовая раздача — отметка снимается");
+        assert!(noise.changes.is_empty());
+        assert!(noise.history.is_empty());
     }
 
     #[test]

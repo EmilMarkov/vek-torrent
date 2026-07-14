@@ -14,6 +14,9 @@ const queryClient = new QueryClient({
   },
 });
 
+// Контекстное меню webview (Reload и т.п.) в приложении не нужно.
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

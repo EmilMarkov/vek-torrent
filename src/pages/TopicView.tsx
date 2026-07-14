@@ -96,9 +96,7 @@ export function TopicView({ topicId }: { topicId: number }) {
           />
         ) : (
           <div className="mx-auto max-w-6xl px-6 py-5">
-            <h1 className="selectable text-xl leading-snug font-semibold text-text">
-              {data.title}
-            </h1>
+            <h1 className="text-xl leading-snug font-semibold text-text">{data.title}</h1>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <DownloadMenu topicId={data.id} title={data.title} />
